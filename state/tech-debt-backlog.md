@@ -140,8 +140,19 @@ Doubled-down adversarial self-review of that new code (the user asked for twice 
 - **Fix:** rely on GitHub branch protection + signed commits; out of scope for this module, documented.
 - **Status:** OPEN — accepted, mitigated by platform controls.
 
+## TD-014 LOW — local bandit (ledger venv) is older than CI bandit; B101 slipped through locally
+- **Defect:** an `assert` in `attestation._as_dicts` passed the local bandit but CI bandit 1.9.4
+  flagged B101 (assert stripped under `python -O`). Local gate was weaker than CI → false green.
+- **Fix applied:** replaced the assert with an explicit `raise TypeError`; no asserts remain in
+  non-test meta-layer code (`grep` confirmed). Caught + fixed by watching CI (§5), not assumed.
+- **Status:** RESOLVED (code). Process gap OPEN: pin/upgrade the local bandit to match CI, or add a
+  `make forge-security` that uses a pinned bandit, so local and CI agree.
+
 ## Closing sweep (attestation iteration)
-- `forge/tests`: 63 tests pass; coverage 98.6% (≥90 gate). ruff + mypy --strict + bandit exit 0.
+- `forge/tests`: 63 tests pass; coverage 98.5% (≥90 gate). ruff + mypy --strict clean. bandit clean
+  after the B101 fix — **verified green in CI (§5): 3/3 jobs success**, including the provenance job
+  that runs the attestation-chain verification on Linux (digests reproduce across OS — working-tree
+  bytes == git-blob bytes confirmed for every attested artifact before push).
 - `make attest`: `ATTEST: PASS` (4 links). Live tamper demo: editing service.py → `ATTEST: FAIL` at
   link 1 naming the file; revert → PASS. `make trace`: `TRACE: PASS`. Provenance (email + chain): PASS.
 - Ledger suite unaffected: 98% green.
