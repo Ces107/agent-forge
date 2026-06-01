@@ -2,8 +2,7 @@
 
 **An autonomous SDLC factory, and the payments ledger it built — every line of application code authored by AI agents, every claim auditable from `git log`.**
 
-<!-- badges: filled in at publish time -->
-<!-- ![ci](https://github.com/OWNER/agent-forge/actions/workflows/ci.yml/badge.svg) -->
+[![ci](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml)
 
 The top level of this repo **is** a reusable multi-agent build pipeline. Inside
 `workspaces/ledger/` is a real, runnable artifact it produced: an idempotent double-entry
