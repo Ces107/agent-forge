@@ -34,3 +34,31 @@ their head.
 - Reconciliation invariant test → global debits == credits.
 - Coverage ≥ 80 %; `ruff`, `mypy --strict`, `bandit` clean; no secrets.
 - Reviewer can `docker compose up` + run the suite from a clean clone in < 5 minutes.
+
+## Acceptance criteria (EARS, machine-traceable)
+
+These are the falsifiable requirements. Each carries a stable `AC-N` id. `forge/work/tasks.md`
+maps every `AC-N` to an implementation task and a real test; `forge.traceability` enforces that
+mapping in CI (no requirement may be silently dropped). EARS = Easy Approach to Requirements
+Syntax (Mavris/Rolls-Royce), the notation AWS Kiro adopts for spec-driven development.
+
+- **AC-1** — When a transfer is accepted, the system shall write exactly one debit and one
+  matching credit of equal magnitude (double-entry).
+- **AC-2** — When a request replays an already-seen `idempotency_key`, the system shall return
+  the original result and shall write no additional postings.
+- **AC-3** — While duplicate submissions of one `idempotency_key` arrive concurrently, the system
+  shall produce at most one posting pair.
+- **AC-4** — While two transfers touch the same account concurrently, the system shall not lose an
+  update (serialised read-modify-write).
+- **AC-5** — The system shall never leave a transfer in a partial state: every transfer id shall
+  have exactly two postings and the books shall close globally after every operation (atomicity /
+  crash-safety).
+- **AC-6** — The system shall conserve money: no code path shall create or destroy value
+  (`sum(debits) == sum(credits)` always).
+- **AC-7** — When a transfer would drive an account below its configured floor, the system shall
+  reject it (no overdraft).
+- **AC-8** — The system shall expose a reconciliation proof where global debits equal credits and
+  each account balance equals the fold of its postings.
+- **AC-9** — While write-lock contention exceeds `busy_timeout` under a retry storm, the system
+  shall return a typed domain result (HTTP 503) and shall not leak an unhandled
+  `OperationalError`. (This is the defect the AdversarialReviewer caught — see `REVIEW-001`.)

@@ -30,6 +30,29 @@ jobs:
       - name: Security (bandit)
         run: bandit -r src -c pyproject.toml
 
+  verify-forge:
+    name: Verify meta-layer (forge pipeline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install forge dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov ruff mypy bandit
+      - name: Traceability gate (spec <-> task <-> test)
+        run: python -m forge.traceability --spec forge/work/spec.md --tasks forge/work/tasks.md --tests-dir workspaces/ledger/tests
+      - name: Tests + coverage gate (>=90%)
+        run: python -m pytest forge/tests --cov=forge --cov-report=term-missing --cov-fail-under=90
+      - name: Lint (ruff)
+        run: ruff check forge --config forge/pyproject.toml
+      - name: Types (mypy --strict)
+        run: mypy forge --config-file forge/pyproject.toml
+      - name: Security (bandit)
+        run: bandit -r forge -c forge/pyproject.toml -q
+
   provenance:
     name: Provenance audit (agent authorship)
     runs-on: ubuntu-latest

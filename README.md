@@ -28,20 +28,36 @@ open AUTONOMOUS-TRAJECTORY.md            # opens with the bug the adversarial ag
 ## The pipeline (`forge/`)
 
 ```
-Spec ──▶ Architect ──▶ Implement ──▶ AdversarialReview ──▶ Verify ──▶ Commit
-(opus)    (opus)        (sonnet)       (sonnet)             (haiku)
+Spec ──▶ Architect ──▶ Tasks ──▶ Implement ──▶ AdversarialReview ──▶ Verify ──▶ Commit
+(opus)    (opus)        (sonnet)  (sonnet)       (sonnet)             (haiku)
 ```
 
-Each stage is a Claude Code sub-agent defined in `.claude/agents/` with a restricted toolset and
-an explicit model tier. The orchestrator (`forge/orchestrator.py`) runs them in order and enforces
-two gates **with teeth**:
+This is **spec-driven development** (after GitHub Spec Kit, AWS Kiro and BMAD-METHOD), with the
+spec→code link made *falsifiable* rather than advisory. Each stage is a Claude Code sub-agent in
+`.claude/agents/` with a restricted toolset and an explicit model tier. The orchestrator
+(`forge/orchestrator.py`) runs them in order and enforces three gates **with teeth**:
 
+- **Task-coverage gate** (after Tasks) — halts unless every EARS acceptance criterion (`AC-N`) in
+  the spec is covered by a task and no task references a phantom criterion.
 - **AdversarialReview gate** — halts unless the reviewer produces a structured finding
   (`forge/reviews/REVIEW-NNN.md`). A review that says "looks fine" is rejected.
 - **Verify gate** — halts unless the test suite, coverage (≥80%), `ruff`, `mypy --strict` and
   `bandit` all exit 0. Completion claims without runtime evidence are worth zero.
+- **Traceability gate** (after Verify) — the full bijection: every `AC-N` traces to a task and every
+  task names a test that now actually exists (`forge/traceability.py`). No dropped requirement, no
+  task pointing at a phantom test. Run it standalone: `make trace`.
 
-Re-run it yourself (requires the `claude` CLI): `make pipeline`.
+Every stage spawn is recorded as an **OpenTelemetry GenAI span** (`forge/observability.py`,
+`gen_ai.*` semantic conventions) carrying a `forge.provenance` attribute, so observability and
+authorship are one auditable record. The meta-layer has its own gates (`make forge-test forge-lint
+forge-types`, ≥90% coverage, `mypy --strict`).
+
+Re-run the build yourself (requires the `claude` CLI): `make pipeline`.
+
+**Where this sits in the field, and where it goes beyond it:** see
+[`docs/STATE-OF-THE-ART.md`](docs/STATE-OF-THE-ART.md) — the projects this draws from (OpenHands,
+SWE-agent, Spec Kit, Kiro, BMAD, LangGraph, Letta/Mem0, Langfuse/OTel) and the auditability delta
+agent-forge adds on top.
 
 ## The inner project (`workspaces/ledger/`)
 
