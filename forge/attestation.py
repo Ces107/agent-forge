@@ -144,7 +144,8 @@ class Attestation:
 
 
 def _as_dicts(value: object) -> list[Mapping[str, str]]:
-    assert isinstance(value, list)
+    if not isinstance(value, list):
+        raise TypeError("attestation inputs/outputs must be a list of artifact dicts")
     return [v for v in value if isinstance(v, Mapping)]
 
 
