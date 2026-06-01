@@ -44,6 +44,12 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA busy_timeout=5000;")
+    # Durability tradeoff, stated on purpose: with WAL, synchronous=NORMAL fsyncs at checkpoint
+    # but NOT on every commit. It is crash-safe against a *process* kill (the WAL replays on
+    # reopen, see tests/test_crash_recovery.py), but a host power loss can lose the last committed
+    # transaction. synchronous=FULL fsyncs on every commit (strict durability) at ~2-3x write
+    # latency. NORMAL is the right default for a single host; a real money rail would run FULL or
+    # replicate the WAL, set by the recovery-point objective.
     conn.execute("PRAGMA synchronous=NORMAL;")
 
 

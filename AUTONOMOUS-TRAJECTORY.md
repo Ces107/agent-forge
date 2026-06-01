@@ -60,6 +60,32 @@ The per-stage spawn audit (model + ROI rationale per agent) is in
 - All defects are tracked in [`state/tech-debt-backlog.md`](state/tech-debt-backlog.md)
   (TD-001 HIGH, TD-002/003 LOW), each RESOLVED with a verifiable fix.
 
+## How deep was the bug, honestly?
+
+Owning this matters more than overselling it. The caught defect (an unhandled `OperationalError` on
+lock-timeout leaking as HTTP 500) is a **code-review-level find**, not a subtle invariant violation. A
+careful human reviewer would also catch it. What makes it worth showing is not its depth but the
+*loop*: an adversarial agent reproduced it with a committed red test, the implementer fixed it without
+weakening that test, and the verifier proved it green, all auditable commit-by-commit.
+
+The harder correctness problems live one level down, and the property model is what guards them:
+a TOCTOU race on the idempotency check (two duplicates both seeing "key absent" and both posting),
+a lost update on a shared balance under interleaving, and a partial transfer surviving a crash. Those
+cannot be caught by reading the code; they are caught by the Hypothesis `RuleBasedStateMachine`
+asserting the five double-entry invariants after every step, and by the crash-recovery test that kills
+the process between the two postings. That is the real correctness signal; the leaked-`OperationalError`
+story is just the most *legible* one.
+
+One limitation is documented rather than hidden, as **F-002** in `forge/reviews/REVIEW-001.md`: a
+transfer that fails validation (for example `AccountNotFound`) rolls back its already-claimed
+idempotency key, so a retry with the same key re-executes and re-raises rather than replaying the
+original error. Stripe caches error responses under an idempotency key; this ledger deliberately does
+not. It is a defended design choice, not a leak.
+
+Since this run, the suite was hardened from 45 to **50 tests** (the crash-recovery test the spec
+promised, plus a `POST /accounts` endpoint that makes the HTTP demo runnable end to end), still at
+~98% coverage with `ruff` + `mypy --strict` + `bandit` clean.
+
 ## How to verify this yourself in 5 minutes
 
 ```bash

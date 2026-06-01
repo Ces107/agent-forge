@@ -36,10 +36,12 @@ covers: AC-4
 verified_by: test_no_lost_update_concurrent_drains
 
 ## T-5 — Atomic two-posting transaction (crash-safety)
-Both postings commit atomically or neither does; a Hypothesis stateful model asserts the invariant
-after every step that each transfer id has exactly two postings and the books close.
+Both postings commit atomically or neither does. A Hypothesis stateful model asserts the invariant
+after every step that each transfer id has exactly two postings and the books close, AND a dedicated
+crash-recovery test kills the process between the debit and the credit (a BaseException escaping the
+rollback handler) and proves a fresh connection still sees closed books with no half-transfer.
 covers: AC-5
-verified_by: transfer_ids_have_exactly_two_postings, books_close_globally
+verified_by: transfer_ids_have_exactly_two_postings, books_close_globally, test_crash_between_postings_leaves_books_closed
 
 ## T-6 — Money conservation invariant
 No path creates or destroys value; conservation holds under concurrent load.

@@ -1,12 +1,14 @@
 """Thin FastAPI layer over ledger.service.
 
 Endpoints:
-  POST /transfers                    -> TransferResult (200)
+  POST /accounts                      -> {"account_id": str, "balance": int} (201)
+  POST /transfers                     -> TransferResult (200)
   GET  /accounts/{account_id}/balance -> {"account_id": str, "balance": int}
-  GET  /reconciliation               -> reconciliation dict
+  GET  /reconciliation                -> reconciliation dict
 """
 
 import os
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -22,7 +24,14 @@ from ledger.errors import (
     ServiceUnavailable,
 )
 from ledger.service import TransferResult, transfer
-from ledger.store import account_balance, connect, get_account, init_schema, reconciliation
+from ledger.store import (
+    account_balance,
+    connect,
+    create_account,
+    get_account,
+    init_schema,
+    reconciliation,
+)
 
 # ---------------------------------------------------------------------------
 # Application factory
@@ -61,6 +70,29 @@ def create_app(db_path: str | None = None) -> FastAPI:
         to_account: str
         amount: int
         replayed: bool
+
+    class CreateAccountRequest(BaseModel):
+        account_id: str = Field(..., min_length=1)
+        balance_floor: int = Field(0, description="Minimum allowed balance (default 0).")
+
+    class AccountResponse(BaseModel):
+        account_id: str
+        balance: int
+
+    @app.post("/accounts", response_model=AccountResponse, status_code=201)
+    def post_account(body: CreateAccountRequest) -> AccountResponse:
+        conn = connect(resolved_db)
+        try:
+            try:
+                create_account(conn, body.account_id, balance_floor=body.balance_floor)
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(
+                    status_code=409, detail=f"Account already exists: {body.account_id!r}"
+                ) from exc
+            balance = account_balance(conn, body.account_id)
+        finally:
+            conn.close()
+        return AccountResponse(account_id=body.account_id, balance=balance)
 
     @app.post("/transfers", response_model=TransferResponse)
     def post_transfer(body: TransferRequest) -> TransferResponse:

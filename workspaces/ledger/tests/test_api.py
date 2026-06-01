@@ -61,6 +61,40 @@ def seeded_client(tmp_db: str) -> tuple[TestClient, str]:
 
 
 # ---------------------------------------------------------------------------
+# POST /accounts — account creation (makes the API runnable end-to-end)
+# ---------------------------------------------------------------------------
+
+
+def test_post_account_creates_account_with_zero_balance(client: TestClient) -> None:
+    resp = client.post("/accounts", json={"account_id": "carol"})
+    assert resp.status_code == 201
+    assert resp.json() == {"account_id": "carol", "balance": 0}
+    # And the balance endpoint now finds it.
+    assert client.get("/accounts/carol/balance").json()["balance"] == 0
+
+
+def test_post_account_duplicate_returns_409(client: TestClient) -> None:
+    assert client.post("/accounts", json={"account_id": "dave"}).status_code == 201
+    dup = client.post("/accounts", json={"account_id": "dave"})
+    assert dup.status_code == 409
+
+
+def test_api_is_runnable_end_to_end(client: TestClient) -> None:
+    """The whole demo via HTTP only: create a funding account, an account, move money, reconcile."""
+    bank = client.post("/accounts", json={"account_id": "bank", "balance_floor": -10**12})
+    assert bank.status_code == 201
+    assert client.post("/accounts", json={"account_id": "erin"}).status_code == 201
+    moved = client.post("/transfers", json={
+        "idempotency_key": "fund-erin", "from_account": "bank", "to_account": "erin", "amount": 500,
+    })
+    assert moved.status_code == 200
+    assert client.get("/accounts/erin/balance").json()["balance"] == 500
+    recon = client.get("/reconciliation").json()
+    assert recon["balanced"] is True
+    assert recon["total_debits"] == recon["total_credits"]
+
+
+# ---------------------------------------------------------------------------
 # POST /transfers — happy path
 # ---------------------------------------------------------------------------
 

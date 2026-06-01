@@ -1,90 +1,139 @@
 # agent-forge
 
-**An autonomous SDLC factory, and the payments ledger it built — every line of application code authored by AI agents, every claim auditable from `git log`.**
+**An idempotent double-entry payments ledger that stays exactly-once under concurrent retry storms,
+and the multi-agent pipeline that built it. Every correctness claim is checkable from `git log` in 90
+seconds.**
 
 [![ci](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml)
 
-The top level of this repo **is** a reusable multi-agent build pipeline. Inside
-`workspaces/ledger/` is a real, runnable artifact it produced: an idempotent double-entry
-payments ledger whose books always close. The interesting thing is not "an AI wrote some code" —
-it is that the process is **legible and falsifiable**: you can trace every design decision, every
-caught bug, and every fix to a specific agent and a specific commit.
+## The 90-second proof
 
-## The 5-minute reviewer path
-
-```bash
-# 1. Who actually wrote the code? (provenance is machine-enforced, not a claim)
-git log --format='%an  %s' -- workspaces/ledger/src
-python hooks/audit_provenance.py        # exits 0 only if every app-code commit is agent-authored
-
-# 2. Does it actually work? (no GPU, no external services)
-cd workspaces/ledger && pip install -e ".[dev]" && python -m pytest
-#   ...or: docker compose up --build
-
-# 3. What did the autonomous run actually do?
-open AUTONOMOUS-TRAJECTORY.md            # opens with the bug the adversarial agent caught
-```
-
-## The pipeline (`forge/`)
-
-```
-Spec ──▶ Architect ──▶ Tasks ──▶ Implement ──▶ AdversarialReview ──▶ Verify ──▶ Commit
-(opus)    (opus)        (sonnet)  (sonnet)       (sonnet)             (haiku)
-```
-
-This is **spec-driven development** (after GitHub Spec Kit, AWS Kiro and BMAD-METHOD), with the
-spec→code link made *falsifiable* rather than advisory. Each stage is a Claude Code sub-agent in
-`.claude/agents/` with a restricted toolset and an explicit model tier. The orchestrator
-(`forge/orchestrator.py`) runs them in order and enforces three gates **with teeth**:
-
-- **Task-coverage gate** (after Tasks) — halts unless every EARS acceptance criterion (`AC-N`) in
-  the spec is covered by a task and no task references a phantom criterion.
-- **AdversarialReview gate** — halts unless the reviewer produces a structured finding
-  (`forge/reviews/REVIEW-NNN.md`). A review that says "looks fine" is rejected.
-- **Verify gate** — halts unless the test suite, coverage (≥80%), `ruff`, `mypy --strict` and
-  `bandit` all exit 0. Completion claims without runtime evidence are worth zero.
-- **Traceability gate** (after Verify) — the full bijection: every `AC-N` traces to a task and every
-  task names a test that now actually exists (`forge/traceability.py`). No dropped requirement, no
-  task pointing at a phantom test. Run it standalone: `make trace`.
-
-Every stage spawn is recorded as an **OpenTelemetry GenAI span** (`forge/observability.py`,
-`gen_ai.*` semantic conventions) carrying a `forge.provenance` attribute, so observability and
-authorship are one auditable record. The meta-layer has its own gates (`make forge-test forge-lint
-forge-types`, ≥90% coverage, `mypy --strict`).
-
-Re-run the build yourself (requires the `claude` CLI): `make pipeline`.
-
-**Where this sits in the field, and where it goes beyond it:** see
-[`docs/STATE-OF-THE-ART.md`](docs/STATE-OF-THE-ART.md) — the projects this draws from (OpenHands,
-SWE-agent, Spec Kit, Kiro, BMAD, LangGraph, Letta/Mem0, Langfuse/OTel) and the auditability delta
-agent-forge adds on top.
-
-## The inner project (`workspaces/ledger/`)
-
-A payments ledger scoped to the single hardest correctness problem: **exactly-once money movement
-under concurrent retry storms**. Double-entry postings, idempotency keys, no overdraft, books that
-close globally. Correctness is verified by a Hypothesis stateful model plus concurrency and
-crash-recovery tests — not happy-path unit tests. See `forge/work/spec.md`.
-
-## Provenance — falsifiable two ways
-
-**1. Git authorship (the convention).** Application-code and design commits are authored by per-role
-agent identities (`* <implementer@agent-forge.bot>`, etc.) or carry a `Co-Authored-By: Claude`
-trailer; the human appears only on scaffold and merge commits.
-
-**2. A tamper-evident attestation chain (the proof).** An email convention is spoofable in one line
-(`git config user.email implementer@agent-forge.bot`), so it is not, by itself, falsifiable. agent-forge
-adds a hash-chained, content-addressed attestation ledger (`forge/attestation.py`, after in-toto / SLSA
-supply-chain attestation) in which each stage commits to the SHA-256 of every artifact it produced and
-to the previous attestation's digest. Verify it:
+An adversarial review agent in the build pipeline caught a real concurrency bug that the implementer
+missed: under lock contention beyond `busy_timeout`, `BEGIN IMMEDIATE` raised
+`sqlite3.OperationalError: database is locked`, which leaked unhandled as HTTP 500 and broke the
+"exactly-once under retry storms" guarantee. The catch, the failing test, and the fix are three
+consecutive commits you can read:
 
 ```bash
-make attest          # re-derives every artifact digest from the tree and walks the chain
-#   ATTEST: PASS — 4 links intact, head 34e97aa169ed…
+git show 708ee99   # reviewer@agent-forge.bot: a deliberately RED regression test (GATE: FAIL)
+git show 49fa176   # implementer@agent-forge.bot: the fix (bounded retry/backoff, typed 503 + Retry-After)
+git show 998e7f4   # verifier@agent-forge.bot: re-ran every check to green (VERIFY: PASS)
 ```
 
-Edit any attested artifact, fabricate a stage, or reorder history and verification fails **at the exact
-broken link** — try it: append a line to `workspaces/ledger/src/ledger/service.py` and re-run `make
-attest`. `hooks/audit_provenance.py` enforces both the git convention **and** the chain (anchored to
-the head committed in `forge/attestations/HEAD`) in CI. The chain attests only the genuinely
-agent-authored inner project; see `docs/STATE-OF-THE-ART.md` §3.2b.
+The red commit is the evidence: a review stage that adds value, not a rubber stamp. The full
+walk-through is in [`AUTONOMOUS-TRAJECTORY.md`](AUTONOMOUS-TRAJECTORY.md).
+
+## The correctness model (`workspaces/ledger/`)
+
+A payments ledger scoped to the single hardest correctness problem: exactly-once money movement under
+concurrent retry storms. The design is the idiom a payments engineer reaches for, and that most
+candidates get wrong:
+
+- **Balance is a fold over an append-only `postings` table**, never a mutable balance column. Mutable
+  balances are the classic source of lost-update and reconciliation bugs.
+- **The idempotency key is claimed atomically inside the `BEGIN IMMEDIATE` write transaction, before
+  validation.** The unique-constraint insert *is* the atomic claim, so two concurrent duplicates can
+  never both proceed. Most implementations insert the key in a separate transaction and race.
+- **The overdraft check runs inside the same write lock** as the postings, so a balance cannot be
+  driven below its floor by an interleaving.
+- **Both postings (debit + credit) and the key commit in one transaction, or none do.** A crash
+  between them leaves the books closed (see the crash-recovery test below).
+- **A typed exception hierarchy maps to HTTP** 404 / 409 / 422 and 503 + `Retry-After`. A lock-timeout
+  is a 503 a client should retry, not a 500.
+
+Correctness is **enforced, not asserted**, by a Hypothesis `RuleBasedStateMachine`
+(`tests/test_properties.py`): it generates random sequences of account creation, transfer, and replay,
+and after **every** step checks five double-entry invariants against the database:
+
+1. global conservation: `sum(debits) == sum(credits)`,
+2. each account balance equals the fold of its postings,
+3. no balance below its floor,
+4. every `transfer_id` has exactly two postings of equal magnitude,
+5. no idempotency key maps to more than one transfer.
+
+This is how you prove a ledger correct, rather than happy-path unit tests. Plus a real crash-recovery
+test (`tests/test_crash_recovery.py`): it kills the process between the debit and the credit (a
+`BaseException` escaping the rollback handler, simulating SIGKILL), drops the connection, opens a fresh
+one, and asserts the books still close with no half-transfer.
+
+```text
+50 passed,  98% coverage,  ruff + mypy --strict + bandit all exit 0
+```
+
+### Run it end-to-end (no GPU, no external services)
+
+```bash
+cd workspaces/ledger && pip install -e ".[dev]" && python -m pytest      # or: docker compose up --build
+uvicorn ledger.api:app                                                   # then, over HTTP only:
+curl -XPOST localhost:8000/accounts  -d '{"account_id":"bank","balance_floor":-1000000000}'
+curl -XPOST localhost:8000/accounts  -d '{"account_id":"alice"}'
+curl -XPOST localhost:8000/transfers -d '{"idempotency_key":"k1","from_account":"bank","to_account":"alice","amount":500}'
+curl      localhost:8000/reconciliation     # {"total_debits":500,"total_credits":500,"balanced":true,...}
+```
+
+## From SQLite to a distributed payments system
+
+SQLite with `BEGIN IMMEDIATE` is a deliberate scope choice: single-writer serial semantics make the
+correctness model trivially provable, which is the point of the demo. The same primitives map onto a
+distributed Postgres-backed system without changing the correctness model:
+
+| Here (single host) | Distributed equivalent |
+|---|---|
+| `idempotency_keys` PRIMARY KEY, claim-before-validate | Postgres `UNIQUE` + `INSERT ... ON CONFLICT DO NOTHING` |
+| `BEGIN IMMEDIATE` serial write lock | `SELECT ... FOR UPDATE` / advisory lock / `SERIALIZABLE` isolation |
+| `busy_timeout` + bounded retry/backoff | a transactional **outbox** drained by a polling worker |
+| two postings in one local transaction | cross-service atomicity via **saga / choreography** with compensations |
+| one key store, one writer | partitioned key ownership, or a single authoritative key service, per region |
+
+The hard problem in production is distributed idempotency across app servers; this repo isolates and
+proves the correctness kernel that every one of those designs still has to get right.
+
+## What this does NOT cover (and why)
+
+Deliberate exclusions, so the kernel stays small enough to hold in your head: multi-node idempotency,
+FX and multi-currency, settlement finality, the difference between a ledger entry and an instruction
+sent to a payment rail, async sagas, auth. One known accepted limitation is documented as F-002 in
+[`forge/reviews/REVIEW-001.md`](forge/reviews/REVIEW-001.md): error responses are not idempotency-cached
+(a failed transfer rolls back its key claim, so a retry re-executes rather than replaying the original
+error). Stripe caches error responses; this ledger deliberately does not, and says so.
+
+## The pipeline that built it (`forge/`)
+
+The ledger's application code was written entirely by Claude Code sub-agents, one per SDLC stage, with
+restricted toolsets and explicit model tiers:
+
+```
+Spec ─▶ Architect ─▶ Tasks ─▶ Implement ─▶ AdversarialReview ─▶ Verify ─▶ Commit
+(opus)   (opus)       (sonnet)  (sonnet)     (sonnet)             (haiku)
+```
+
+This is spec-driven development (after GitHub Spec Kit, AWS Kiro, BMAD) with the spec-to-code link made
+machine-checkable: a CI gate enforces a bijection between every EARS acceptance criterion (`AC-N`), a
+task, and a real test (`make trace`), and a verify gate halts unless tests, coverage, `ruff`,
+`mypy --strict` and `bandit` all pass. The verify gate actually halted twice on the first run (coverage
+68% < 80%, 11 ruff findings) before going green, which is the point: the gate measures substance.
+Re-run the build yourself with the `claude` CLI: `make pipeline`.
+
+Flywire's posting asks for both payments/distributed-systems correctness and agentic AI development;
+this repo is both in one place.
+
+## Why this candidate
+
+I build correctness-critical software in a regulated medical-software company (HL7, DICOM, FHIR hospital
+integrations under EU MDR, GDPR and EHDS). Money-movement discipline and clinical-data discipline are
+the same discipline: exactly-once, no silent loss, auditable end to end. That regulated/healthcare
+background is adjacent to Flywire's healthcare payments vertical.
+
+## Appendix: provenance and tooling
+
+For reviewers who want to check that the agent-built claim is real rather than asserted: the
+autonomous **build** of the ledger is authored by per-role agent identities
+(`implementer@agent-forge.bot`, `reviewer@agent-forge.bot`, `verifier@agent-forge.bot`), verifiable in
+`git log`. Since then I maintain the code as engineer-of-record under my own name, openly. The honest
+claim is therefore precise: the build was agent-authored, and only the named engineer has touched the
+application code since. `hooks/audit_provenance.py` enforces exactly that (it fails on any *foreign*
+author of `workspaces/ledger/src`) and prints the split. Because an author email is spoofable, a
+tamper-evident hash-chain attestation ledger (`forge/attestation.py`, after in-toto / SLSA) additionally
+binds each build stage to the SHA-256 of the artifacts it produced; `make attest` re-derives every digest
+and fails at the exact link if anything was altered. The harness (`forge/`) is human-authored throughout.
+Field context and design notes: [`docs/STATE-OF-THE-ART.md`](docs/STATE-OF-THE-ART.md).
