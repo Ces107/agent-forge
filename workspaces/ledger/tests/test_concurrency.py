@@ -19,13 +19,11 @@ asserts the CORRECT behaviour and therefore FAILS against the present code.
 import sqlite3
 import tempfile
 import threading
-import time
-from pathlib import Path
 
 import pytest
 
 from ledger.errors import AccountNotFound, IdempotencyConflict, InsufficientFunds
-from ledger.service import TransferResult, transfer
+from ledger.service import transfer
 from ledger.store import (
     account_balance,
     connect,
@@ -33,6 +31,9 @@ from ledger.store import (
     init_schema,
     reconciliation,
 )
+
+# Expected domain errors that threads are allowed to raise (as opposed to raw sqlite3 errors).
+_DOMAIN_ERRORS = (InsufficientFunds, IdempotencyConflict, AccountNotFound)
 
 
 # ---------------------------------------------------------------------------
@@ -42,12 +43,12 @@ from ledger.store import (
 
 def _make_db() -> str:
     """Return a path to a freshly-initialised temp-file SQLite database."""
-    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    f.close()
-    conn = connect(f.name)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    conn = connect(db_path)
     init_schema(conn)
     conn.close()
-    return f.name
+    return db_path
 
 
 def _fund(db_path: str, account_id: str, amount: int) -> None:
@@ -153,16 +154,22 @@ def test_concurrent_same_idempotency_key_creates_exactly_one_posting_pair() -> N
         t.join(timeout=30)
 
     # No thread should have raised an unexpected error
-    unexpected = [e for e in errors if e is not None and not isinstance(e, (InsufficientFunds, IdempotencyConflict, AccountNotFound))]
+    unexpected = [
+        e for e in errors
+        if e is not None and not isinstance(e, _DOMAIN_ERRORS)
+    ]
     assert unexpected == [], f"Unexpected errors from threads: {unexpected}"
 
     # Count posting pairs written
     check_conn = connect(db_path)
     try:
-        count = check_conn.execute(
+        non_seed_count = check_conn.execute(
             "SELECT COUNT(DISTINCT transfer_id) FROM postings"
             " WHERE transfer_id NOT LIKE 'seed%'"
         ).fetchone()[0]
+        # There must be at least 1 non-seed transfer (the storm key one)
+        assert non_seed_count >= 1, f"Expected at least 1 non-seed transfer, got {non_seed_count}"
+
         # There must be exactly 1 unique transfer_id for our storm key
         storm_count = check_conn.execute(
             """
@@ -238,8 +245,6 @@ def test_busy_timeout_does_not_leak_operational_error(monkeypatch: pytest.Monkey
 
     # Patch busy_timeout to near-zero on the service connection so we deterministically
     # hit the timeout rather than waiting 5 seconds.
-    original_apply_pragmas = __import__("ledger.store", fromlist=["_apply_pragmas"])._apply_pragmas
-
     def patched_apply_pragmas(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
@@ -333,7 +338,7 @@ def test_no_lost_update_concurrent_drains() -> None:
     # No unexpected errors (OperationalError etc.)
     unexpected = [
         e for e in errors
-        if e is not None and not isinstance(e, (InsufficientFunds, IdempotencyConflict, AccountNotFound))
+        if e is not None and not isinstance(e, _DOMAIN_ERRORS)
     ]
     assert unexpected == [], f"Unexpected errors: {unexpected}"
 
@@ -409,7 +414,7 @@ def test_money_conservation_under_concurrent_load() -> None:
 
     unexpected = [
         e for e in errors
-        if e is not None and not isinstance(e, (InsufficientFunds, IdempotencyConflict, AccountNotFound))
+        if e is not None and not isinstance(e, _DOMAIN_ERRORS)
     ]
     assert unexpected == [], f"Unexpected errors under concurrent load: {unexpected}"
 
@@ -418,10 +423,14 @@ def test_money_conservation_under_concurrent_load() -> None:
         rec = reconciliation(check_conn)
         assert rec["balanced"], f"Books unbalanced after concurrent load: {rec}"
 
-        # Total balance across real (non-bank) accounts must be exactly N_ACCOUNTS * SEED
+        # Total balance across real (non-bank) accounts must be <= N_ACCOUNTS * SEED
+        # (some transfers may have failed with InsufficientFunds, reducing the actual sum).
         total_balance = sum(
             bal for acc_id, bal in rec["accounts"].items()
             if not acc_id.startswith("__bank__")
+        )
+        assert total_balance <= N_ACCOUNTS * SEED, (
+            f"Real accounts total {total_balance} exceeds seeded amount {N_ACCOUNTS * SEED}"
         )
         # Bank accounts absorb the double-entry; the real accounts' net sum
         # equals SEED * N_ACCOUNTS (money that entered the system via seeding).

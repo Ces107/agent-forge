@@ -17,10 +17,17 @@ import datetime
 import hashlib
 import json
 import sqlite3
+import time
 import uuid
 from dataclasses import dataclass
 
-from ledger.errors import AccountNotFound, IdempotencyConflict, InsufficientFunds
+from ledger.errors import (
+    AccountNotFound,
+    IdempotencyConflict,
+    InsufficientFunds,
+    InvalidAmount,
+    ServiceUnavailable,
+)
 from ledger.store import (
     Direction,
     account_balance,
@@ -89,6 +96,43 @@ def _result_from_json(raw: str, replayed: bool) -> TransferResult:
 
 
 # ---------------------------------------------------------------------------
+# Write-lock acquisition helpers
+# ---------------------------------------------------------------------------
+
+_LOCK_BUSY_MSGS = frozenset({"database is locked", "database is busy"})
+_LOCK_MAX_ATTEMPTS = 3
+_LOCK_BASE_SLEEP_S = 0.05  # 50 ms, doubles each attempt
+
+
+def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
+    msg = str(exc).lower()
+    return any(busy in msg for busy in _LOCK_BUSY_MSGS)
+
+
+def _begin_immediate(conn: sqlite3.Connection) -> None:
+    """Acquire the SQLite write lock via BEGIN IMMEDIATE with bounded retry-backoff.
+
+    Retries up to _LOCK_MAX_ATTEMPTS times on lock-busy OperationalError with
+    exponential backoff (50 ms, 100 ms, ...).  Raises ServiceUnavailable if
+    all attempts are exhausted.
+    """
+    sleep = _LOCK_BASE_SLEEP_S
+    for attempt in range(1, _LOCK_MAX_ATTEMPTS + 1):
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_error(exc):
+                raise
+            if attempt == _LOCK_MAX_ATTEMPTS:
+                raise ServiceUnavailable(
+                    "Write lock unavailable after retries; please retry the request"
+                ) from exc
+            time.sleep(sleep)
+            sleep *= 2
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -104,15 +148,20 @@ def transfer(
     """Execute a double-entry transfer under a single BEGIN IMMEDIATE transaction.
 
     Raises:
+        InvalidAmount        — amount is not a positive integer.
         AccountNotFound      — from_account or to_account does not exist.
         InsufficientFunds    — transfer would push from_account below its floor.
         IdempotencyConflict  — key already used with a different (from, to, amount).
+        ServiceUnavailable   — write lock could not be acquired within retry budget.
     """
+    if amount <= 0:
+        raise InvalidAmount(f"Transfer amount must be positive, got {amount!r}")
+
     req_hash = _request_hash(from_account, to_account, amount)
     transfer_id = str(uuid.uuid4())
     now = _utcnow()
 
-    conn.execute("BEGIN IMMEDIATE")
+    _begin_immediate(conn)
     try:
         # --- idempotency: try to claim the key atomically ---
         try:

@@ -24,3 +24,17 @@ class AccountNotFound(LedgerError):
 
     Maps to HTTP 404 Not Found.
     """
+
+
+class InvalidAmount(LedgerError):
+    """Raised when the transfer amount is not a positive integer.
+
+    Maps to HTTP 422 Unprocessable Entity.
+    """
+
+
+class ServiceUnavailable(LedgerError):
+    """Raised when the write lock cannot be acquired within the retry budget.
+
+    Maps to HTTP 503 Service Unavailable (retryable).
+    """

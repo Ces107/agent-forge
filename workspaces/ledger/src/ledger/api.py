@@ -7,12 +7,20 @@ Endpoints:
 """
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from ledger.errors import AccountNotFound, IdempotencyConflict, InsufficientFunds
+from ledger.errors import (
+    AccountNotFound,
+    IdempotencyConflict,
+    InsufficientFunds,
+    InvalidAmount,
+    ServiceUnavailable,
+)
 from ledger.service import TransferResult, transfer
 from ledger.store import account_balance, connect, get_account, init_schema, reconciliation
 
@@ -28,14 +36,15 @@ def create_app(db_path: str | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     resolved_db = db_path or os.environ.get(_DB_PATH_ENV, _DEFAULT_DB_PATH)
 
-    app = FastAPI(title="Ledger", version="0.1.0")
-
-    # Initialise schema on startup.
-    @app.on_event("startup")
-    def _startup() -> None:
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Initialise schema on startup (lifespan replaces the deprecated on_event).
         conn = connect(resolved_db)
         init_schema(conn)
         conn.close()
+        yield
+
+    app = FastAPI(title="Ledger", version="0.1.0", lifespan=lifespan)
 
     # ---------- routes ----------
 
@@ -66,10 +75,14 @@ def create_app(db_path: str | None = None) -> FastAPI:
             )
         except AccountNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except InsufficientFunds as exc:
+        except (InsufficientFunds, InvalidAmount) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ServiceUnavailable as exc:
+            raise HTTPException(
+                status_code=503, headers={"Retry-After": "1"}, detail=str(exc)
+            ) from exc
         finally:
             conn.close()
 
