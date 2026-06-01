@@ -28,6 +28,7 @@ Most of the field optimises capability. agent-forge optimises **auditability of 
 | [Mem0](https://github.com/mem0ai/mem0) | Apache-2.0 | CRUD memory layer with an extraction phase and ADD/UPDATE/DELETE/NOOP reconciliation; AWS Agent SDK's memory provider. | ~41k |
 | [Langfuse](https://github.com/langfuse/langfuse) / [OpenLLMetry](https://github.com/traceloop/openllmetry) | MIT / Apache-2.0 | OpenTelemetry **GenAI semantic conventions**: `gen_ai.*` spans for agent / tool / model, vendor-portable traces. | large |
 | [SWE-bench](https://github.com/SWE-bench/SWE-bench) / [terminal-bench](https://github.com/laude-institute/terminal-bench) | MIT | The evaluation harnesses the whole field is scored on (real GitHub issues / real terminal tasks). | reference |
+| [in-toto](https://github.com/in-toto/in-toto) / [SLSA](https://slsa.dev) / [sigstore](https://github.com/sigstore) | Apache-2.0 | Software **supply-chain attestation**: signed, content-addressed provenance for build artifacts. Mature in CI/CD; **un-applied to "which agent produced which artifact"** — agent-forge's opening. | reference |
 
 Two patterns this table makes obvious. First, the capability leaders (OpenHands, SWE-agent) and the
 *method* leaders (Spec Kit, Kiro, BMAD) are largely disjoint projects. Second, none of them treats
@@ -51,6 +52,7 @@ concrete thing in this repo and the project it is taken from.
 | **OpenTelemetry GenAI spans** (`gen_ai.operation.name`, `gen_ai.agent.name`, `gen_ai.request.model`, `gen_ai.usage.*`) | `forge/observability.py` | Langfuse / OpenLLMetry / OTel GenAI semantic conventions |
 | **Self-correcting state via reconciliation** (ADD/UPDATE/DELETE/NOOP mental model for what the pipeline learns) | `forge/spawn-log.jsonl`, trajectory | Mem0's memory reconciliation; ACE Generator→Reflector→Curator loop |
 | **Verify-everything gate** (tests + coverage + ruff + mypy --strict + bandit, run by the agent itself) | `.claude/agents/verifier.md`, `gate_verify()` | The "no green, no merge" discipline of all serious harnesses |
+| **Content-addressed, hash-chained attestations** for provenance | `forge/attestation.py`, `forge/attestations/` | in-toto / SLSA / sigstore supply-chain attestation, applied to agents |
 
 ---
 
@@ -72,8 +74,28 @@ mechanically. Run it: `make trace`.
 The field treats "who did this" (git authorship) and "what happened" (telemetry) as two disconnected
 systems. agent-forge fuses them: every OTel GenAI span carries a `forge.provenance` attribute naming
 the accountable agent identity, and that identity is the same string that appears as the git author
-(`* <implementer@agent-forge.bot>`). `hooks/audit_provenance.py` then makes the "agent-built" claim
-falsifiable from `git log` alone. Observability you can *audit*, not just watch.
+(`* <implementer@agent-forge.bot>`). Observability you can *audit*, not just watch.
+
+### 3.2b Tamper-evident agent provenance (in-toto / SLSA, applied to agents — the new headline)
+This is the sharpest version of the whole thesis. The naive provenance check — "the git author email
+ends in `@agent-forge.bot`" — is **spoofable in one line** (`git config user.email
+implementer@agent-forge.bot`). A label is not a proof. So agent-forge brings the discipline of
+software-supply-chain attestation (in-toto, SLSA, sigstore), standard in CI/CD but **absent from the
+agentic-dev field**, to the question of *which agent produced which artifact*.
+
+`forge/attestation.py` records each stage as an **attestation** committing to the SHA-256 of every
+artifact it read and produced, the agent identity, the model, the gate verdict, and the digest of the
+previous attestation — a **hash chain**, the same append-only immutable structure the inner project's
+double-entry ledger demonstrates. The meta-layer is now *itself* a tamper-evident ledger of agent
+actions. Verification (`make attest`) re-reads the artifacts from the working tree, recomputes every
+digest, walks the chain, and confirms the head matches the anchor committed to git. Edit any attested
+file after the fact, fabricate a stage that never ran, or reorder history, and verification fails **at
+the exact broken link**. No keys, no shared secret: integrity is keyless, anchored by git. This is the
+difference between "trust me, an agent did it" and "here is a tamper-evident proof; try to forge it and
+the chain tells you where you lied." `hooks/audit_provenance.py` enforces both the email convention
+*and* the chain, in CI. Honesty constraint: the chain attests **only** the genuinely agent-authored
+inner project (verifiable in `git log`); the operator-authored meta-layer is excluded, because a
+cryptographically-signed false authorship claim would be the very dishonesty this is built to defeat.
 
 ### 3.3 Gates with teeth, proven by a red commit
 OpenHands and friends are judged on a pass rate. agent-forge additionally proves its *review stage

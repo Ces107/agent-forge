@@ -63,5 +63,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Audit commit provenance
+      - name: Verify tamper-evident attestation chain
+        run: python -m forge.attestation verify --chain forge/attestations/chain.ndjson --root .
+      - name: Audit commit provenance (email convention + attestation chain)
         run: python hooks/audit_provenance.py

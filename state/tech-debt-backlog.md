@@ -94,3 +94,55 @@ spans), `forge/traceability.py` (spec<->task<->test gate), planner agent, and CI
 - Real traceability gate against the ledger: `TRACE: PASS` (9 AC, 9 tasks, all tests real).
 - Ledger suite unaffected: 98% coverage, green. Provenance audit: PASS (no app-code touched).
 
+---
+
+# Sweep — tamper-evident attestation chain (2026-06-01, v0.3.0)
+
+Session added `forge/attestation.py` (in-toto/SLSA-style hash-chained provenance), a real verifying
+chain over the agent-built ledger (`forge/attestations/`), upgraded `hooks/audit_provenance.py` to
+enforce the chain, and refactored the orchestrator into a tested `run_pipeline`. ~700 net new LOC.
+Doubled-down adversarial self-review of that new code (the user asked for twice the criticism):
+
+## TD-007 LOW — the autonomous pipeline loop was untested  →  RESOLVED
+- **Fix:** extracted `run_pipeline(plan, mandate, runner)` with a dependency-injected runner. Three
+  integration tests now assert the gates fire in order and the pipeline HALTS at the verify gate and
+  at the task-coverage gate (Implement never runs). The "autonomous factory" is tested, not asserted.
+- **Status:** RESOLVED — `test_pipeline_completes_when_gates_pass` + two halt tests.
+
+## TD-010 MEDIUM — the chain proves INTEGRITY, not AUTHENTICITY (do not overclaim)
+- **Defect:** the hash chain is keyless, so it detects tampering/reordering but does NOT cryptographically
+  prove an *agent* (vs a human) produced the artifacts. Anyone holding the manifest + artifacts can
+  rebuild an identical chain and re-anchor HEAD. It raises forgery cost (you must regenerate the whole
+  chain and re-commit the head) but is not non-repudiation.
+- **Honest framing (already in STATE-OF-THE-ART §3.2b):** the chain is tamper-EVIDENCE anchored by
+  git's own immutability; authenticity rests on git commit history + signed commits + CI logs, layered
+  on top. We must never describe it as "proof an agent wrote it" — only "proof these artifacts form an
+  unaltered linked set since attestation."
+- **Fix (future):** ed25519 / sigstore-keyless signing of each attestation with a run-scoped identity.
+- **Status:** OPEN — documented, deliberately not overclaimed.
+
+## TD-011 MEDIUM — manifest authorship is declared, not cross-checked against git
+- **Defect:** `manifest.json` asserts `architect@agent-forge.bot` produced the ADRs. The claim is TRUE
+  (git log confirms) but `forge.attestation` does not itself verify each attested artifact's `agent`
+  against the real git author of the commit that last touched it.
+- **Fix:** a `verify --against-git` mode that fails if an attested agent != the artifact's git author.
+  Would make authorship self-verifying instead of trust-the-manifest.
+- **Status:** OPEN — next-highest-leverage hardening.
+
+## TD-012 LOW — the live orchestrator does not append attestations during a run
+- **Defect:** `run_pipeline`/`run_stage` (live CLI path) does not emit attestations; the chain is built
+  post-hoc from the manifest. A real autonomous run would not self-produce the chain.
+- **Fix:** wire an `append_attestation()` helper into `run_stage` so each stage extends the live chain.
+- **Status:** OPEN.
+
+## TD-013 LOW — HEAD anchor is only as trustworthy as the committer / branch protection
+- **Defect:** a force-push rewriting history with a regenerated chain + matching HEAD would pass.
+- **Fix:** rely on GitHub branch protection + signed commits; out of scope for this module, documented.
+- **Status:** OPEN — accepted, mitigated by platform controls.
+
+## Closing sweep (attestation iteration)
+- `forge/tests`: 63 tests pass; coverage 98.6% (≥90 gate). ruff + mypy --strict + bandit exit 0.
+- `make attest`: `ATTEST: PASS` (4 links). Live tamper demo: editing service.py → `ATTEST: FAIL` at
+  link 1 naming the file; revert → PASS. `make trace`: `TRACE: PASS`. Provenance (email + chain): PASS.
+- Ledger suite unaffected: 98% green.
+

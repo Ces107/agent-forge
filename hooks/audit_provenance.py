@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_CODE_PREFIX = "workspaces/ledger/src"
 AGENT_EMAIL_DOMAIN = "@agent-forge.bot"
 COAUTHOR_MARKER = "Co-Authored-By: Claude"
+CHAIN_PATH = REPO_ROOT / "forge" / "attestations" / "chain.ndjson"
+HEAD_PATH = REPO_ROOT / "forge" / "attestations" / "HEAD"
 
 
 def _git(*args: str) -> str:
@@ -37,6 +41,27 @@ def commit_is_agent_authored(sha: str) -> bool:
     return author_email.endswith(AGENT_EMAIL_DOMAIN) or COAUTHOR_MARKER in body
 
 
+def audit_attestation_chain() -> tuple[bool, str]:
+    """Defence in depth: the email convention above is spoofable in one line of `git config`; the
+    attestation chain is not. Re-derive every artifact digest from the tree, walk the hash chain,
+    and confirm the head matches the anchor committed to git. See ``forge/attestation.py``.
+    """
+    sys.path.insert(0, str(REPO_ROOT))
+    from forge.attestation import filesystem_resolver, parse, verify
+
+    if not CHAIN_PATH.exists():
+        return True, "no attestation chain present (skipped)"
+
+    result = verify(parse(CHAIN_PATH.read_text(encoding="utf-8")), filesystem_resolver(REPO_ROOT))
+    if not result.ok:
+        return False, result.render()
+    if HEAD_PATH.exists():
+        anchored = HEAD_PATH.read_text(encoding="utf-8").strip()
+        if anchored != result.head:
+            return False, f"chain head {result.head[:12]}… != committed anchor {anchored[:12]}…"
+    return True, result.render()
+
+
 def main() -> int:
     offenders: list[str] = []
     shas = commits_touching_app_code()
@@ -51,7 +76,13 @@ def main() -> int:
             print(f"  {line}")
         return 1
 
+    chain_ok, chain_msg = audit_attestation_chain()
+    if not chain_ok:
+        print(f"PROVENANCE: FAIL — tamper-evident attestation chain broken: {chain_msg}")
+        return 1
+
     print(f"PROVENANCE: PASS — all {len(shas)} app-code commits carry agent authorship.")
+    print(f"  attestation chain: {chain_msg}")
     return 0
 
 

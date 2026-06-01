@@ -29,7 +29,7 @@ import argparse
 import json
 import subprocess  # nosec B404
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -186,6 +186,32 @@ def format_plan(plan: Sequence[PlanStep]) -> str:
     return "\n".join(f"{s.stage.name:10} model={s.model:7} roi={s.roi}" for s in plan)
 
 
+# A Runner executes one stage and returns its result. The default drives the live `claude` CLI;
+# tests inject a fake so the orchestration control flow (gate ordering, halt-on-failure) is itself
+# testable rather than asserted. Closes TD-007.
+Runner = Callable[[PlanStep, str], StageResult]
+
+
+def run_pipeline(plan: Sequence[PlanStep], mandate: str, runner: Runner = run_stage) -> int:
+    """Run each stage in order and fire its gate. Any gate raises GateError and halts the pipeline.
+
+    This is the heart of the autonomous factory, extracted from ``main`` so it can be exercised
+    end-to-end with an injected runner — proving the gates actually fire in order, not just exist.
+    """
+    for step in plan:
+        print(f"[forge] running stage {step.stage.name} (model={step.model})")
+        result = runner(step, mandate)
+        if step.stage is Stage.TASKS:
+            gate_task_coverage()
+        if step.stage is Stage.REVIEW:
+            gate_review()
+        if step.stage is Stage.VERIFY:
+            gate_verify(result)
+            gate_traceability()
+    print("[forge] pipeline complete — all gates passed")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the agent-forge pipeline.")
     parser.add_argument("--mandate", type=Path, required=True, help="Path to the one-line mandate file.")
@@ -198,18 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     mandate = args.mandate.read_text(encoding="utf-8").strip()
-    for step in plan:  # pragma: no cover - exercised by integration runs, not unit tests
-        print(f"[forge] running stage {step.stage.name} (model={step.model})")
-        result = run_stage(step, mandate)
-        if step.stage is Stage.TASKS:
-            gate_task_coverage()
-        if step.stage is Stage.REVIEW:
-            gate_review()
-        if step.stage is Stage.VERIFY:
-            gate_verify(result)
-            gate_traceability()
-    print("[forge] pipeline complete — all gates passed")  # pragma: no cover
-    return 0  # pragma: no cover
+    return run_pipeline(plan, mandate)
 
 
 if __name__ == "__main__":  # pragma: no cover

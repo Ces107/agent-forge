@@ -66,9 +66,25 @@ under concurrent retry storms**. Double-entry postings, idempotency keys, no ove
 close globally. Correctness is verified by a Hypothesis stateful model plus concurrency and
 crash-recovery tests — not happy-path unit tests. See `forge/work/spec.md`.
 
-## Provenance
+## Provenance — falsifiable two ways
 
-Application-code and design commits are authored by per-role agent identities
-(`* <implementer@agent-forge.bot>`, etc.) or carry a `Co-Authored-By: Claude` trailer; the human
-appears only on scaffold and merge commits. `hooks/audit_provenance.py` enforces this in CI, so the
-"agent-built" claim is falsifiable rather than asserted.
+**1. Git authorship (the convention).** Application-code and design commits are authored by per-role
+agent identities (`* <implementer@agent-forge.bot>`, etc.) or carry a `Co-Authored-By: Claude`
+trailer; the human appears only on scaffold and merge commits.
+
+**2. A tamper-evident attestation chain (the proof).** An email convention is spoofable in one line
+(`git config user.email implementer@agent-forge.bot`), so it is not, by itself, falsifiable. agent-forge
+adds a hash-chained, content-addressed attestation ledger (`forge/attestation.py`, after in-toto / SLSA
+supply-chain attestation) in which each stage commits to the SHA-256 of every artifact it produced and
+to the previous attestation's digest. Verify it:
+
+```bash
+make attest          # re-derives every artifact digest from the tree and walks the chain
+#   ATTEST: PASS — 4 links intact, head 34e97aa169ed…
+```
+
+Edit any attested artifact, fabricate a stage, or reorder history and verification fails **at the exact
+broken link** — try it: append a line to `workspaces/ledger/src/ledger/service.py` and re-run `make
+attest`. `hooks/audit_provenance.py` enforces both the git convention **and** the chain (anchored to
+the head committed in `forge/attestations/HEAD`) in CI. The chain attests only the genuinely
+agent-authored inner project; see `docs/STATE-OF-THE-ART.md` §3.2b.

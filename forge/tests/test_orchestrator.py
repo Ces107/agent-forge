@@ -9,6 +9,7 @@ import pytest
 from forge import orchestrator
 from forge.orchestrator import (
     GateError,
+    PlanStep,
     Stage,
     StageResult,
     build_plan,
@@ -18,6 +19,7 @@ from forge.orchestrator import (
     gate_traceability,
     gate_verify,
     main,
+    run_pipeline,
 )
 
 _PASS_SPEC = "AC-1 the system shall close its books.\n"
@@ -151,3 +153,68 @@ def test_gate_task_coverage_halts_on_orphan_task_ref(monkeypatch: pytest.MonkeyP
     _wire_trace(monkeypatch, work, tests)
     with pytest.raises(GateError, match="orphan task refs: AC-7"):
         gate_task_coverage()
+
+
+# --- run_pipeline integration (injected runner; the autonomous loop is tested, not asserted) ----
+
+
+def _wire_all_gates_pass(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    tests = tmp_path / "tests"
+    reviews = tmp_path / "reviews"
+    for d in (work, tests, reviews):
+        d.mkdir()
+    (work / "spec.md").write_text(_PASS_SPEC, encoding="utf-8")
+    (work / "tasks.md").write_text(_PASS_TASKS, encoding="utf-8")
+    (tests / "test_x.py").write_text("def test_books_close(): ...", encoding="utf-8")
+    (reviews / "REVIEW-001.md").write_text("GATE: FAIL then fixed", encoding="utf-8")
+    _wire_trace(monkeypatch, work, tests)
+    monkeypatch.setattr(orchestrator, "REVIEW_DIR", reviews)
+
+
+def _plan() -> list[PlanStep]:
+    return list(build_plan())
+
+
+def test_pipeline_completes_when_gates_pass(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _wire_all_gates_pass(monkeypatch, tmp_path)
+    seen: list[str] = []
+
+    def fake_runner(step: PlanStep, mandate: str) -> StageResult:
+        seen.append(step.stage.name)
+        output = "VERIFY: PASS" if step.stage is orchestrator.Stage.VERIFY else "ok"
+        return StageResult(step.stage, output, 0)
+
+    assert run_pipeline(_plan(), "mandate", fake_runner) == 0
+    # Every stage ran, in order.
+    assert seen == ["SPEC", "ARCHITECT", "TASKS", "IMPLEMENT", "REVIEW", "VERIFY"]
+
+
+def test_pipeline_halts_at_verify_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _wire_all_gates_pass(monkeypatch, tmp_path)
+
+    def fake_runner(step: PlanStep, mandate: str) -> StageResult:
+        return StageResult(step.stage, "checks failed", 1)  # never emits VERIFY: PASS
+
+    with pytest.raises(GateError, match="VERIFY: PASS not present"):
+        run_pipeline(_plan(), "mandate", fake_runner)
+
+
+def test_pipeline_halts_at_task_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # An uncovered AC must stop the pipeline at the Tasks gate, before the Implement stage runs.
+    work = tmp_path / "work"
+    tests = tmp_path / "tests"
+    work.mkdir()
+    tests.mkdir()
+    (work / "spec.md").write_text("AC-1 x\nAC-2 uncovered\n", encoding="utf-8")
+    (work / "tasks.md").write_text(_PASS_TASKS, encoding="utf-8")
+    _wire_trace(monkeypatch, work, tests)
+    reached: list[str] = []
+
+    def fake_runner(step: PlanStep, mandate: str) -> StageResult:
+        reached.append(step.stage.name)
+        return StageResult(step.stage, "ok", 0)
+
+    with pytest.raises(GateError, match="uncovered AC"):
+        run_pipeline(_plan(), "mandate", fake_runner)
+    assert "IMPLEMENT" not in reached  # halted at the Tasks gate

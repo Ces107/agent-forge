@@ -1,4 +1,4 @@
-.PHONY: install test verify lint types security provenance trace forge-test forge-lint forge-types up pipeline
+.PHONY: install test verify lint types security provenance trace attest forge-test forge-lint forge-types up pipeline
 
 LEDGER := workspaces/ledger
 
@@ -25,6 +25,10 @@ security:
 trace:
 	python -m forge.traceability --spec forge/work/spec.md --tasks forge/work/tasks.md --tests-dir $(LEDGER)/tests
 
+# Tamper-evident provenance: re-derive every attested artifact digest and walk the hash chain.
+attest:
+	python -m forge.attestation verify --chain forge/attestations/chain.ndjson --root .
+
 forge-test:
 	python -m pytest forge/tests --cov=forge --cov-report=term-missing --cov-fail-under=90
 
@@ -38,7 +42,7 @@ provenance:
 	python hooks/audit_provenance.py
 
 # Full gate, same as CI.
-verify: test lint types security trace forge-test forge-lint forge-types provenance
+verify: test lint types security trace attest forge-test forge-lint forge-types provenance
 
 up:
 	docker compose up --build

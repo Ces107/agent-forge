@@ -1,0 +1,57 @@
+{
+  "_comment": "Declared provenance of the agent-built ledger. Each stage's `agent` is the REAL git author of the commit that produced those artifacts (verifiable: `git log --format='%an <%ae>' -- <path>`). Digests are computed from the working tree by `python -m forge.attestation build`; never hand-written. The resulting chain (chain.ndjson) is tamper-evident: edit any attested artifact and `forge.attestation verify` breaks at that link. This attests ONLY the agent-authored inner project; the operator-authored meta-layer (forge/*.py, tasks.md) is deliberately excluded to keep every authorship claim true.",
+  "stages": [
+    {
+      "stage": "architect",
+      "agent": "architect@agent-forge.bot",
+      "model": "opus",
+      "inputs": ["forge/work/spec.md"],
+      "outputs": [
+        "docs/decisions/ADR-001-double-entry-schema.md",
+        "docs/decisions/ADR-002-idempotency-and-stored-response.md",
+        "docs/decisions/ADR-003-concurrency-and-crash-recovery.md"
+      ],
+      "gate_verdict": ""
+    },
+    {
+      "stage": "implementer",
+      "agent": "implementer@agent-forge.bot",
+      "model": "sonnet",
+      "inputs": [
+        "docs/decisions/ADR-001-double-entry-schema.md",
+        "docs/decisions/ADR-002-idempotency-and-stored-response.md",
+        "docs/decisions/ADR-003-concurrency-and-crash-recovery.md"
+      ],
+      "outputs": [
+        "workspaces/ledger/src/ledger/__init__.py",
+        "workspaces/ledger/src/ledger/errors.py",
+        "workspaces/ledger/src/ledger/store.py",
+        "workspaces/ledger/src/ledger/service.py",
+        "workspaces/ledger/src/ledger/api.py"
+      ],
+      "gate_verdict": ""
+    },
+    {
+      "stage": "adversarial-reviewer",
+      "agent": "reviewer@agent-forge.bot",
+      "model": "sonnet",
+      "inputs": [
+        "workspaces/ledger/src/ledger/service.py",
+        "workspaces/ledger/src/ledger/api.py"
+      ],
+      "outputs": ["forge/reviews/REVIEW-001.md"],
+      "gate_verdict": "GATE: FAIL"
+    },
+    {
+      "stage": "verifier",
+      "agent": "verifier@agent-forge.bot",
+      "model": "haiku",
+      "inputs": [
+        "workspaces/ledger/src/ledger/service.py",
+        "workspaces/ledger/src/ledger/store.py"
+      ],
+      "outputs": ["forge/reviews/VERIFY-001.md"],
+      "gate_verdict": "VERIFY: PASS"
+    }
+  ]
+}
