@@ -1,0 +1,6 @@
+{"ts":"2026-06-01T10:02:00Z","agent":"architect","model":"opus","stage":"ARCHITECT","roi":"Pin the double-entry/idempotency/concurrency contract before any code so the Implementer has an unambiguous target."}
+{"ts":"2026-06-01T10:09:00Z","agent":"implementer","model":"sonnet","stage":"IMPLEMENT","roi":"Build the stdlib ledger core + thin FastAPI shell + first test layer per the ADRs; leave concurrency stress to the review stage."}
+{"ts":"2026-06-01T10:21:00Z","agent":"adversarial-reviewer","model":"sonnet","stage":"REVIEW","roi":"Attack the concurrency/idempotency surface; reproduced TD-001 (SQLITE_BUSY leak under retry storms) with a failing test. GATE: FAIL."}
+{"ts":"2026-06-01T10:31:00Z","agent":"implementer","model":"sonnet","stage":"REVIEW_FIX","roi":"Resolve TD-001 (bounded retry + ServiceUnavailable->503) and TD-002 (amount guard) without weakening the reviewer's test."}
+{"ts":"2026-06-01T10:44:00Z","agent":"implementer","model":"sonnet","stage":"HARDEN","roi":"Verify gate halted on coverage 68%<80 and 11 ruff findings; add API + service tests, clean lint, reach 97.9% coverage."}
+{"ts":"2026-06-01T10:58:00Z","agent":"verifier","model":"sonnet","stage":"VERIFY","roi":"Run the full gate independently (pytest+cov, ruff, mypy --strict, bandit, secret scan); VERIFY: PASS."}
