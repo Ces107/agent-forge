@@ -1,0 +1,12 @@
+services:
+  ledger:
+    build: ./workspaces/ledger
+    ports:
+      - "8000:8000"
+    environment:
+      LEDGER_DB_PATH: /data/ledger.sqlite
+    volumes:
+      - ledger-data:/data
+
+volumes:
+  ledger-data:
