@@ -166,6 +166,37 @@ def write_zip(skill: Path, out_dir: Path) -> Path:
     return target
 
 
+PLUGIN_SKILLS = REPO_ROOT / "plugins" / "agent-forge" / "skills"
+
+
+def mirror_plugin(skills: Sequence[Path], check: bool) -> list[str]:
+    """Mirror the public skills into the Claude Code plugin folder (an exact copy, never edited).
+
+    The plugin folder holds only skills, so directory scanners never see the rest of the repo.
+    Returns the problems found in check mode (drift between a skill and its plugin copy).
+    """
+    problems: list[str] = []
+    for skill in skills:
+        if skill.parent != DEFAULT_SRC:
+            continue  # only the public skills ship in the free plugin
+        target = PLUGIN_SKILLS / skill.name
+        wanted = {p.relative_to(skill).as_posix(): p.read_bytes() for p in bundle_files(skill)}
+        present: dict[str, bytes] = {}
+        if target.exists():
+            present = {p.relative_to(target).as_posix(): p.read_bytes() for p in bundle_files(target)}
+        if wanted == present:
+            continue
+        if check:
+            problems.append(f"plugins/agent-forge/skills/{skill.name} is out of sync (run skills/build.py)")
+            continue
+        for rel in present.keys() - wanted.keys():
+            (target / rel).unlink()
+        for rel, content in wanted.items():
+            (target / rel).parent.mkdir(parents=True, exist_ok=True)
+            (target / rel).write_bytes(content)
+    return problems
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sync, pre-flight and zip SKILL.md bundles.")
     parser.add_argument("--src", type=Path, action="append", help="folder of skill folders (repeatable)")
@@ -195,6 +226,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         else:
             target = write_zip(skill, args.out)
             print(f"ok    {skill.name} -> {target}{detail}")
+
+    plugin_problems = mirror_plugin(skills, args.check)
+    for problem in plugin_problems:
+        print(f"FAIL  {problem}")
+    failed += len(plugin_problems)
 
     verdict = "PASS" if failed == 0 else "FAIL"
     print(f"\nSKILLS: {verdict} — {len(skills) - failed}/{len(skills)} bundles clean")

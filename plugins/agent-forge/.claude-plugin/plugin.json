@@ -15,5 +15,6 @@
     "spec-driven-development",
     "quality-gate"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "icon": ".claude-plugin/icon.png"
 }
