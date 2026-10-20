@@ -23,6 +23,8 @@ feature branch passes its own tests.
 
 ## Results (2026-10-20)
 
+![Same bugs found, far less noise, far more proof](results/2026-10-20/chart.png)
+
 Reviewers: `proven-code-review` (this repo) and `code-reviewer`, the most-installed code-review
 skill on Agensi at the time (prompt-only), run verbatim.
 

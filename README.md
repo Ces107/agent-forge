@@ -21,6 +21,8 @@ Claude Code, Codex CLI, Cursor, Copilot, Gemini CLI and other agents:
 | `agent-forge-pipeline` | The whole Spec → Architect → Tasks → Implement → Review → Verify pipeline: five sub-agent roles, gates, loop rules, optional attestation | [Agensi](https://www.agensi.io/creators/cesar-pereiro) |
 | `ledger-correctness-kit` | Plug-in property-based and concurrency test suite for any double-entry ledger, plus design rules and a review checklist | [Agensi](https://www.agensi.io/creators/cesar-pereiro) |
 
+[![Blind-judged benchmark: same bugs found, far less noise, far more proof](bench/code-review/results/2026-10-20/chart.png)](bench/code-review)
+
 Install the free skills:
 
 ```bash
