@@ -13,13 +13,13 @@ Claude Code, Codex CLI, Cursor, Copilot, Gemini CLI and other agents:
 
 | Skill | What it does | Get it |
 |---|---|---|
-| [`proven-code-review`](skills/proven-code-review) | Code review that reads beyond the diff, tries to refute every suspicion, and proves each serious bug with a failing test it ran. [Benchmarked in public](bench/code-review) | free |
+| [`proven-code-review`](skills/proven-code-review) | Code review that reads beyond the diff, tries to refute every suspicion, and proves each serious bug with a failing test it ran. [Benchmarked in public](bench/code-review) | free, also [on Agensi](https://agensi.io/skills/proven-code-review-every-serious-bug-comes-with-a-failing-test) |
 | [`spec-trace-gate`](skills/spec-trace-gate) | Fails when a spec requirement has no task, a task cites a phantom requirement, or a task names a test that does not exist | free |
 | [`verify-gate`](skills/verify-gate) | Runs the real tests, coverage, lint, types and security scan; `VERIFY: PASS` only on all-zero exit codes | free |
 | [`adversarial-review-gate`](skills/adversarial-review-gate) | A review that must break the code: findings count only with a failing test, ending in `GATE: PASS/FAIL` | free |
-| `proof-of-done` | Claude Code hooks that block the agent from ending its turn until the tests really ran green after its last edit, plus a guard against deleted, skipped or weakened tests | [Agensi](https://www.agensi.io/creators/cesar-pereiro) |
-| `agent-forge-pipeline` | The whole Spec → Architect → Tasks → Implement → Review → Verify pipeline: five sub-agent roles, gates, loop rules, optional attestation | [Agensi](https://www.agensi.io/creators/cesar-pereiro) |
-| `ledger-correctness-kit` | Plug-in property-based and concurrency test suite for any double-entry ledger, plus design rules and a review checklist | [Agensi](https://www.agensi.io/creators/cesar-pereiro) |
+| `proof-of-done` | Claude Code hooks that block the agent from ending its turn until the tests really ran green after its last edit, plus a guard against deleted, skipped or weakened tests | [Agensi](https://agensi.io/skills/proof-of-done-your-agent-can-t-say-done-until-the-tests-pass) |
+| `agent-forge-pipeline` | The whole Spec → Architect → Tasks → Implement → Review → Verify pipeline: five sub-agent roles, gates, loop rules, optional attestation | [Agensi](https://agensi.io/skills/agent-forge-pipeline-spec-driven-multi-agent-builds-with-hard-gates) |
+| `ledger-correctness-kit` | Plug-in property-based and concurrency test suite for any double-entry ledger, plus design rules and a review checklist | [Agensi](https://agensi.io/skills/ledger-correctness-kit-prove-money-moves-exactly-once) |
 
 [![Blind-judged benchmark: same bugs found, far less noise, far more proof](bench/code-review/results/2026-10-20/chart.png)](bench/code-review)
 
