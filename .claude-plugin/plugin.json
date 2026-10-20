@@ -14,5 +14,6 @@
     "verification",
     "spec-driven-development",
     "quality-gate"
-  ]
+  ],
+  "license": "MIT"
 }
