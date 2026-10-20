@@ -6,6 +6,23 @@ seconds.**
 
 [![ci](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml)
 
+## Use the pipeline in your own repo: skills
+
+The pipeline's gates ship as [SKILL.md](https://agensi.io/learn/skill-md-format) skills, which run in
+Claude Code, Codex CLI, Cursor, Copilot, Gemini CLI and other agents:
+
+| Skill | What it does | Get it |
+|---|---|---|
+| [`spec-trace-gate`](skills/spec-trace-gate) | Fails when a spec requirement has no task, a task cites a phantom requirement, or a task names a test that does not exist | free, here and on Agensi |
+| [`verify-gate`](skills/verify-gate) | Runs the real tests, coverage, lint, types and security scan; `VERIFY: PASS` only on all-zero exit codes | free, here and on Agensi |
+| [`adversarial-review-gate`](skills/adversarial-review-gate) | A review that must break the code: findings count only with a failing test, ending in `GATE: PASS/FAIL` | free, here and on Agensi |
+| `agent-forge-pipeline` | The whole Spec → Architect → Tasks → Implement → Review → Verify pipeline: five sub-agent roles, gates, loop rules, optional attestation | [Agensi](https://agensi.io) |
+| `ledger-correctness-kit` | Plug-in property-based and concurrency test suite for any double-entry ledger, plus design rules and a review checklist | [Agensi](https://agensi.io) |
+
+Install a free skill in Claude Code by copying its folder into `~/.claude/skills/` (all projects) or
+`.claude/skills/` (one project). `python skills/build.py` pre-flights every skill against marketplace
+scanner rules, keeps the bundled gate scripts identical to `forge/`, and writes the zips to `dist/skills/`.
+
 ## The 90-second proof
 
 An adversarial review agent in the build pipeline caught a real concurrency bug that the implementer
@@ -114,15 +131,11 @@ task, and a real test (`make trace`), and a verify gate halts unless tests, cove
 68% < 80%, 11 ruff findings) before going green, which is the point: the gate measures substance.
 Re-run the build yourself with the `claude` CLI: `make pipeline`.
 
-Flywire's posting asks for both payments/distributed-systems correctness and agentic AI development;
-this repo is both in one place.
+## Author
 
-## Why this candidate
-
-I build correctness-critical software in a regulated medical-software company (HL7, DICOM, FHIR hospital
-integrations under EU MDR, GDPR and EHDS). Money-movement discipline and clinical-data discipline are
-the same discipline: exactly-once, no silent loss, auditable end to end. That regulated/healthcare
-background is adjacent to Flywire's healthcare payments vertical.
+César Pereiro. I build correctness-critical software in a regulated medical-software company (HL7,
+DICOM, FHIR hospital integrations under EU MDR, GDPR and EHDS). Money-movement discipline and
+clinical-data discipline are the same discipline: exactly-once, no silent loss, auditable end to end.
 
 ## Appendix: provenance and tooling
 

@@ -28,7 +28,11 @@ named SDD tools enforce this bijection in CI; this is where agent-forge goes bey
 Usage:  python -m forge.traceability \
             --spec forge/work/spec.md \
             --tasks forge/work/tasks.md \
-            --tests-dir workspaces/ledger/tests
+            --tests-dir workspaces/ledger/tests \
+            [--structure-only] [--test-glob '*.test.ts' ...]
+
+``--structure-only`` checks spec<->task coverage alone (right after the Tasks stage, before any test
+exists). ``--test-glob`` replaces the default multi-language test-file patterns.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +48,20 @@ AC_PATTERN = re.compile(r"\bAC-(\d+)\b")
 TASK_HEADER_PATTERN = re.compile(r"\bT-(\d+)\b")
 COVERS_PATTERN = re.compile(r"covers:\s*(?P<refs>[^\n]+)", re.IGNORECASE)
 VERIFIED_BY_PATTERN = re.compile(r"verified_by:\s*(?P<sel>[^\n]+)", re.IGNORECASE)
+
+# Test-file naming conventions of the common stacks: pytest, Jest/Vitest, Go, JUnit, RSpec, xUnit.
+DEFAULT_TEST_GLOBS: tuple[str, ...] = (
+    "test_*.py",
+    "*_test.py",
+    "*.test.*",
+    "*.spec.*",
+    "*_test.go",
+    "*Test.java",
+    "*Tests.java",
+    "*Test.kt",
+    "*_spec.rb",
+    "*Tests.cs",
+)
 
 
 @dataclass(frozen=True)
@@ -82,7 +100,7 @@ class TraceReport:
         """
         return self.structure_ok and not self.unverified_tasks
 
-    def render(self) -> str:
+    def render(self, structure_only: bool = False) -> str:
         lines = [
             "# Traceability report (spec <-> task <-> test)",
             "",
@@ -94,9 +112,12 @@ class TraceReport:
             lines.append(f"- UNCOVERED acceptance criteria: {', '.join(self.uncovered_criteria)}")
         if self.orphan_task_refs:
             lines.append(f"- ORPHAN task references (no such AC): {', '.join(self.orphan_task_refs)}")
-        if self.unverified_tasks:
+        if self.unverified_tasks and not structure_only:
             lines.append(f"- UNVERIFIED tasks (test selector not found): {', '.join(self.unverified_tasks)}")
-        verdict = "TRACE: PASS" if self.ok else "TRACE: FAIL"
+        passed = self.structure_ok if structure_only else self.ok
+        verdict = "TRACE: PASS" if passed else "TRACE: FAIL"
+        if structure_only:
+            verdict += " (structure only: spec <-> task)"
         lines.extend(["", verdict])
         return "\n".join(lines)
 
@@ -143,11 +164,12 @@ def _extract_selectors(block: str) -> tuple[str, ...]:
     return tuple(sel for sel in selectors if sel)
 
 
-def collect_test_corpus(tests_dir: Path) -> str:
-    """Concatenate every ``test_*.py`` body so ``verified_by`` substrings can be searched once."""
+def collect_test_corpus(tests_dir: Path, globs: Sequence[str] = DEFAULT_TEST_GLOBS) -> str:
+    """Concatenate every test-file body so ``verified_by`` substrings can be searched once."""
     if not tests_dir.exists():
         return ""
-    parts = [path.read_text(encoding="utf-8") for path in sorted(tests_dir.rglob("test_*.py"))]
+    paths = sorted({path for pattern in globs for path in tests_dir.rglob(pattern) if path.is_file()})
+    parts = [path.read_text(encoding="utf-8", errors="replace") for path in paths]
     return "\n".join(parts)
 
 
@@ -196,8 +218,10 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
-def run(spec: Path, tasks: Path, tests_dir: Path) -> TraceReport:
-    return build_report(_read(spec), _read(tasks), collect_test_corpus(tests_dir))
+def run(
+    spec: Path, tasks: Path, tests_dir: Path, globs: Sequence[str] = DEFAULT_TEST_GLOBS
+) -> TraceReport:
+    return build_report(_read(spec), _read(tasks), collect_test_corpus(tests_dir, globs))
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -205,11 +229,25 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--tasks", type=Path, required=True)
     parser.add_argument("--tests-dir", type=Path, required=True)
+    parser.add_argument(
+        "--structure-only",
+        action="store_true",
+        help="check spec<->task coverage only (before any test exists)",
+    )
+    parser.add_argument(
+        "--test-glob",
+        action="append",
+        dest="test_globs",
+        metavar="PATTERN",
+        help="test-file pattern, repeatable; replaces the multi-language default",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    report = run(args.spec, args.tasks, args.tests_dir)
-    print(report.render())
-    return 0 if report.ok else 1
+    globs = tuple(args.test_globs) if args.test_globs else DEFAULT_TEST_GLOBS
+    report = run(args.spec, args.tasks, args.tests_dir, globs)
+    print(report.render(structure_only=args.structure_only))
+    passed = report.structure_ok if args.structure_only else report.ok
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

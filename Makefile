@@ -1,4 +1,4 @@
-.PHONY: install test verify lint types security provenance trace attest forge-test forge-lint forge-types up pipeline
+.PHONY: install test verify lint types security provenance trace attest forge-test forge-lint forge-types skills skills-check up pipeline
 
 LEDGER := workspaces/ledger
 
@@ -41,8 +41,15 @@ forge-types:
 provenance:
 	python hooks/audit_provenance.py
 
+# SKILL.md bundles: sync gate scripts from forge/, pre-flight, zip into dist/skills/.
+skills:
+	python skills/build.py
+
+skills-check:
+	python skills/build.py --check
+
 # Full gate, same as CI.
-verify: test lint types security trace attest forge-test forge-lint forge-types provenance
+verify: test lint types security trace attest forge-test forge-lint forge-types provenance skills-check
 
 up:
 	docker compose up --build

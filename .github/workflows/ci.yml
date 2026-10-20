@@ -52,6 +52,8 @@ jobs:
         run: mypy forge --config-file forge/pyproject.toml
       - name: Security (bandit)
         run: bandit -r forge -c forge/pyproject.toml -q
+      - name: Skill bundles (pre-flight + no drift from forge/)
+        run: python skills/build.py --check
 
   provenance:
     name: Provenance audit (agent authorship)

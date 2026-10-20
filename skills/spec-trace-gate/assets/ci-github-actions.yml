@@ -1,0 +1,13 @@
+# Add as a job in .github/workflows/<name>.yml. Adjust the three paths to your repository layout and
+# copy scripts/trace_gate.py from the skill to tools/trace_gate.py in your repository.
+jobs:
+  traceability:
+    name: Spec <-> task <-> test traceability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Traceability gate
+        run: python tools/trace_gate.py --spec docs/spec.md --tasks docs/tasks.md --tests-dir tests

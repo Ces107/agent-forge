@@ -164,3 +164,51 @@ def test_cli_main_returns_one_on_fail(tmp_path: Path, capsys: pytest.CaptureFixt
     code = main(["--spec", str(spec), "--tasks", str(tasks), "--tests-dir", str(tests)])
     assert code == 1
     assert "TRACE: FAIL" in capsys.readouterr().out
+
+
+def test_collect_test_corpus_default_globs_cover_other_stacks(tmp_path: Path) -> None:
+    (tmp_path / "ledger.test.ts").write_text("it('test_ts_case', () => {})", encoding="utf-8")
+    (tmp_path / "ledger_test.go").write_text("func TestGoCase(t *testing.T) {}", encoding="utf-8")
+    (tmp_path / "LedgerTest.java").write_text("void testJavaCase() {}", encoding="utf-8")
+    corpus = collect_test_corpus(tmp_path)
+    assert "test_ts_case" in corpus
+    assert "TestGoCase" in corpus
+    assert "testJavaCase" in corpus
+
+
+def test_collect_test_corpus_custom_glob_replaces_default(tmp_path: Path) -> None:
+    (tmp_path / "test_a.py").write_text("def test_alpha(): ...", encoding="utf-8")
+    (tmp_path / "checks.rs").write_text("fn rust_case() {}", encoding="utf-8")
+    corpus = collect_test_corpus(tmp_path, ("*.rs",))
+    assert "rust_case" in corpus
+    assert "test_alpha" not in corpus
+
+
+def test_cli_structure_only_passes_before_tests_exist(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = tmp_path / "spec.md"
+    tasks = tmp_path / "tasks.md"
+    spec.write_text(_SPEC, encoding="utf-8")
+    tasks.write_text(_TASKS, encoding="utf-8")
+
+    args = ["--spec", str(spec), "--tasks", str(tasks), "--tests-dir", str(tmp_path / "none")]
+    assert main([*args, "--structure-only"]) == 0
+    out = capsys.readouterr().out
+    assert "TRACE: PASS (structure only" in out
+    assert "UNVERIFIED" not in out
+    assert main(args) == 1
+
+
+def test_cli_test_glob_option(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    spec = tmp_path / "spec.md"
+    tasks = tmp_path / "tasks.md"
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    spec.write_text(_SPEC, encoding="utf-8")
+    tasks.write_text(_TASKS, encoding="utf-8")
+    (tests / "ledger.checks").write_text(_TEST_CORPUS, encoding="utf-8")
+
+    args = ["--spec", str(spec), "--tasks", str(tasks), "--tests-dir", str(tests)]
+    assert main([*args, "--test-glob", "*.checks"]) == 0
+    assert "TRACE: PASS" in capsys.readouterr().out
