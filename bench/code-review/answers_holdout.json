@@ -1,0 +1,90 @@
+{
+  "_comment": "Held-out answer key for cases_holdout.py. Never shown to the reviewer under test. A defect counts as found when the review reports it as a defect (any severity above note/nit) with the right location and mechanism. On clean cases, every reported defect is a false positive; items under also_valid on a clean case are acceptable only as notes or nits.",
+  "h01-revenue-cache": {
+    "defects": [
+      {
+        "id": "h01-cross-tenant-cache",
+        "severity": "critical",
+        "where": "reports/service.py monthly_revenue + module-level _revenue_cache (tenant_id lives on self, set in __init__; ReportService is built per request in reports/dashboard.py)",
+        "mechanism": "The cache is module-global and shared by every ReportService instance, but the key is only f\"revenue:{month}\": it omits self.tenant_id. The first tenant to load a month's dashboard fills the entry and every other tenant gets that tenant's revenue (and a wrong average order) for five minutes. Cross-tenant data leak. The FX cache it copies is keyed correctly because FX rates are global.",
+        "accept_if_mentions": ["cache key missing tenant_id / not scoped per tenant", "one tenant sees another tenant's revenue / data leak across tenants"]
+      }
+    ],
+    "also_valid": ["average_order mixes a cached revenue with a fresh order count, so it is inconsistent for up to five minutes after new orders", "new orders are not reflected for five minutes (accepted by the PR, at most a note)"]
+  },
+  "h02-headcount-allocation": {
+    "defects": [
+      {
+        "id": "h02-rounding-unbalanced",
+        "severity": "high",
+        "where": "src/allocation.js splitByHeadcount (Math.round per share), consumed by src/payables.js bookInvoice; the balance check is in src/ledger.js postJournal (unchanged)",
+        "mechanism": "Each share is rounded independently, so the shares do not add up to the total: 10000 cents across three equal teams gives 3333 x 3 = 9999, and 101 across two gives 51 + 51 = 102. postJournal then throws UnbalancedJournalError, so booking fails for most real invoices (any total not divisible by the headcount ratio). The remainder must be distributed (largest remainder, or give the leftover cents to one line).",
+        "accept_if_mentions": ["rounded shares do not sum to the total / lost or extra cents", "journal unbalanced / postJournal throws UnbalancedJournalError"]
+      }
+    ],
+    "also_valid": ["negative or non-integer headcounts are not validated", "tests only use totals that divide evenly"]
+  },
+  "h03-price-list-import": {
+    "defects": [
+      {
+        "id": "h03-pool-slot-leak",
+        "severity": "high",
+        "where": "catalog/prices.py replace_price_list (pool.release after the with block); pool size and blocking acquire in catalog/pool.py (unchanged)",
+        "mechanism": "pool.release(conn) is skipped whenever the import raises (CHECK/primary-key violation, unparseable price, missing column). `with conn:` only commits or rolls back the transaction; it does not return the connection. Every rejected file permanently consumes one of the 4 semaphore slots; after 4 bad uploads every acquire() raises PoolExhausted and the whole catalog (get_price, set_price) is down until restart. The other functions use try/finally.",
+        "accept_if_mentions": ["connection not released on exception / missing try-finally", "pool exhausted after failed imports / connection leak"]
+      }
+    ],
+    "also_valid": ["parse errors (InvalidOperation, missing price column) also surface as raw exceptions rather than a validation error"]
+  },
+  "h04-login-return-to": {
+    "defects": [
+      {
+        "id": "h04-open-redirect",
+        "severity": "high",
+        "where": "src/returnTo.js TRUSTED_ORIGIN regex used by safeReturnTo",
+        "mechanism": "The allowlist regex is anchored at the start but has no host boundary after example\\.com, so it matches any URL whose text merely begins with an allowed host: https://example.com.evil.test/login and https://app.example.com@evil.test/login (userinfo) both pass and completeLogin redirects to an attacker host. Open redirect right after login (phishing, token theft). Fix: parse the URL and check url.hostname === 'example.com' || url.hostname.endsWith('.example.com'), or end the pattern with (?:[/:?#]|$) and reject userinfo.",
+        "accept_if_mentions": ["regex not anchored at the end of the host / prefix match", "open redirect via example.com.evil or userinfo @"]
+      }
+    ],
+    "also_valid": ["tests only cover obviously foreign hosts"]
+  },
+  "h05-usage-billing": {
+    "defects": [
+      {
+        "id": "h05-last-day-dropped",
+        "severity": "high",
+        "where": "billing/usage.py billable_calls (`< period.end`); BillingPeriod.end is the inclusive last day per billing/periods.py month_period and days (unchanged)",
+        "mechanism": "BillingPeriod.end is the last day of the month, inclusive (month_period sets it to the 31st, days adds 1, the label reads '01 Oct - 31 Oct', proration counts end inclusively). billable_calls uses an exclusive end, so usage on the last day of every period is never billed, and the next period starts the day after, so it is lost for good (~3% of usage revenue). Should be <= period.end.",
+        "accept_if_mentions": ["off-by-one: end of period is inclusive", "last day of the month not billed"]
+      }
+    ],
+    "also_valid": ["tests have no event on the last day of the period"]
+  },
+  "h06-flag-env-override": {
+    "defects": [
+      {
+        "id": "h06-zero-override-ignored",
+        "severity": "high",
+        "where": "src/flags.js effectivePercent (`override || flag.rolloutPercent`)",
+        "mechanism": "`||` treats a numeric 0 override as missing. Setting FLAG_<NAME>_PERCENT=0 to switch a feature off during an incident leaves it at the configured percentage (new-checkout stays at 25%), while 1 or -1 do take effect. The kill-switch use of the override silently does nothing. Should check Number.isFinite(override) (and treat the empty string as unset), or use ?? on a NaN-filtered value.",
+        "accept_if_mentions": ["|| treats 0 as falsy / should use ?? or isFinite check", "override of 0 ignored / cannot turn a flag off"]
+      }
+    ],
+    "also_valid": ["tests never set the override to 0"]
+  },
+  "h07-clean-webhook-retries": {
+    "defects": [],
+    "also_valid": [
+      "Retry-After is not honoured on 429/503 (enhancement, at most a note)",
+      "dispatch is sequential, so a dead endpoint delays the rest of the batch by up to ~7.5 s per event (design note; it runs in the background worker)",
+      "retrying a POST is safe here because receivers deduplicate on the unchanged Webhook-Id and body (flagging it as a duplicate-delivery bug is a false positive)"
+    ]
+  },
+  "h08-clean-thumbnail-concurrency": {
+    "defects": [],
+    "also_valid": [
+      "calls already in flight keep running after the first rejection (documented behaviour, at most a note)",
+      "the shared `next` index is not a race: JavaScript runs the workers on one thread and `next` is read and incremented synchronously (flagging it is a false positive)"
+    ]
+  }
+}

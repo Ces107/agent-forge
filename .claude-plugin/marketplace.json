@@ -1,0 +1,14 @@
+{
+  "name": "agent-forge",
+  "owner": { "name": "César Pereiro", "url": "https://github.com/Ces107" },
+  "metadata": {
+    "description": "Agent skills that prove their work: reviews that reproduce bugs with failing tests, gates that block 'done' without evidence."
+  },
+  "plugins": [
+    {
+      "name": "agent-forge",
+      "source": ".",
+      "description": "Proven code review, verify gate, spec trace gate and adversarial review gate: skills that prove their work instead of asserting it."
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "_comment": "Answer key. Never shown to the reviewer under test. A defect counts as found when the review reports it as a defect (any severity above note/nit) with the right location and mechanism. On clean cases, every reported defect is a false positive.",
+  "c01-idempotent-charge": {
+    "defects": [
+      {
+        "id": "c01-race",
+        "severity": "critical",
+        "where": "payments/service.py (SELECT then capture then INSERT), payments/db.py (index is not UNIQUE)",
+        "mechanism": "Check-then-act idempotency: two concurrent retries with the same key both see no row and both capture the card (double charge). The idempotency_key index is not unique, nothing serialises the check and the insert, and capture happens before the row is written.",
+        "accept_if_mentions": ["concurrent or simultaneous retries race", "index not unique / no unique constraint", "double capture/charge"]
+      }
+    ],
+    "also_valid": ["same key with a different amount or customer silently returns the old charge", "capture succeeds but the insert fails, so a retry captures again"]
+  },
+  "c02-invoice-pdf": {
+    "defects": [
+      {
+        "id": "c02-idor",
+        "severity": "critical",
+        "where": "src/routes.js downloadInvoicePdf",
+        "mechanism": "No ownership check: any authenticated user can download any invoice PDF by id (IDOR), while the sibling route uses loadOwnedInvoice.",
+        "accept_if_mentions": ["missing ownership/authorization check", "user can read another user's invoice"]
+      }
+    ],
+    "also_valid": ["test does not cover the other-user case"]
+  },
+  "c03-paginate": {
+    "defects": [
+      {
+        "id": "c03-last-page",
+        "severity": "high",
+        "where": "audit/export.py page_count",
+        "mechanism": "Floor division drops the last partial page: 41 rows at 20 per page report 2 pages, so the 41st row is never reachable from the UI page links.",
+        "accept_if_mentions": ["floor division / should round up / ceil", "last partial page missing"]
+      }
+    ],
+    "also_valid": ["test only covers an exact multiple of per_page"]
+  },
+  "c04-notify-all": {
+    "defects": [
+      {
+        "id": "c04-foreach-async",
+        "severity": "high",
+        "where": "src/jobs.js notifyAll",
+        "mechanism": "Array.forEach does not await async callbacks: notifyAll returns before any reminder is sent, rejections (user without email) become unhandled promise rejections that can crash the process, and the reported count is users.length regardless of outcome (attempted is always 0).",
+        "accept_if_mentions": ["forEach with async callback not awaited", "returns before sends complete / unhandled rejection", "count is wrong"]
+      }
+    ],
+    "also_valid": []
+  },
+  "c05-parse-amount": {
+    "defects": [
+      {
+        "id": "c05-swallow-zero",
+        "severity": "critical",
+        "where": "ledger/amounts.py parse_amount",
+        "mechanism": "except Exception: return 0 turns every unparseable amount into 0 cents silently. '1,234.50' still does not parse: it now imports as 0 instead of failing. Money data corruption.",
+        "accept_if_mentions": ["swallowed exception returns 0", "thousands separator still not handled"]
+      },
+      {
+        "id": "c05-weakened-test",
+        "severity": "high",
+        "where": "tests/test_amounts.py test_thousands_separator",
+        "mechanism": "The assertion was weakened from == 123450 to is not None, which always passes, hiding that the fix does not work. The PR claim is false.",
+        "accept_if_mentions": ["test assertion weakened / always passes", "PR claim not true"]
+      }
+    ],
+    "also_valid": []
+  },
+  "c06-customer-search": {
+    "defects": [
+      {
+        "id": "c06-sqli",
+        "severity": "critical",
+        "where": "crm/repo.py search_customers",
+        "mechanism": "SQL built with an f-string from user input: SQL injection. Every other query in the module is parameterised.",
+        "accept_if_mentions": ["SQL injection", "f-string / string interpolation in SQL"]
+      }
+    ],
+    "also_valid": ["LIKE wildcards % and _ in the input are not escaped"]
+  },
+  "c07-token-expiry": {
+    "defects": [
+      {
+        "id": "c07-naive-aware",
+        "severity": "critical",
+        "where": "auth/tokens.py is_expired",
+        "mechanism": "datetime.utcnow() is naive but issue() stores an aware UTC expires_at, so the comparison raises TypeError: redeem() crashes for every real token and no password reset works. The new test builds a naive token, so it passes.",
+        "accept_if_mentions": ["naive vs aware datetime / TypeError", "redeem crashes for issued tokens"]
+      }
+    ],
+    "also_valid": ["datetime.utcnow is deprecated"]
+  },
+  "c08-find-user": {
+    "defects": [
+      {
+        "id": "c08-caller-break",
+        "severity": "high",
+        "where": "users/api.py get_user_plan (unchanged file) + users/store.py find_user",
+        "mechanism": "Callers still rely on UserNotFound. get_user_plan's except never fires; for a missing user it does None['plan'] and raises TypeError (HTTP 500) instead of returning 404. UserNotFound is now dead.",
+        "accept_if_mentions": ["api.py still catches UserNotFound", "missing user now crashes / 500 instead of 404"]
+      }
+    ],
+    "also_valid": []
+  },
+  "c09-clean-refactor": {
+    "defects": [],
+    "also_valid": []
+  },
+  "c10-clean-slugify": {
+    "defects": [],
+    "also_valid": ["non-Latin titles produce an empty slug and fall back to the id-only URL (handled, at most a note)"]
+  }
+}
