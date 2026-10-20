@@ -1,0 +1,434 @@
+{
+  "c01-idempotent-charge": {
+    "X": {
+      "seeded_found": ["c01-race"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Race found as critical with a failing concurrent test; also proves the old-schema migration crash and the per-customer/amount key issue (also_valid), each with pytest output."
+    },
+    "Y": {
+      "seeded_found": ["c01-race"],
+      "findings_total": 5,
+      "real_findings": 5,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same race and migration crash as critical, plus both also_valid items and a test-gap note; reproductions are prose claims with inline results, not command transcripts."
+    }
+  },
+  "c02-invoice-pdf": {
+    "X": {
+      "seeded_found": ["c02-idor"],
+      "findings_total": 4,
+      "real_findings": 3,
+      "false_positives": ["speculative nit that totals may be cents and print 100x (unverified assumption about stored units)"],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "IDOR found as critical with a confirmed cross-user read; the invalid-PDF point is real but secondary, and the cents nit is speculation."
+    },
+    "Y": {
+      "seeded_found": ["c02-idor"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Single precise IDOR finding with a failing proof test and node output; the placeholder PDF concern is correctly raised as a question."
+    }
+  },
+  "c03-paginate": {
+    "X": {
+      "seeded_found": ["c03-last-page"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Floor-division page count found at high with a parametrised failing test (41, 19, 20001 rows); test-gap noted inline."
+    },
+    "Y": {
+      "seeded_found": ["c03-last-page"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same defect rated critical (one level above key), plus the also_valid test gap and a hedged but accurate in-memory pagination suggestion."
+    }
+  },
+  "c04-notify-all": {
+    "X": {
+      "seeded_found": ["c04-foreach-async"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "forEach/async covered in full (wrong counts, unhandled-rejection exit code 1, lost sends) as critical, plus a real tautological-test suggestion."
+    },
+    "Y": {
+      "seeded_found": ["c04-foreach-async"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Seeded defect split into two high findings (early return/wrong counts; crash), each with node output, stack trace and exit code."
+    }
+  },
+  "c05-parse-amount": {
+    "X": {
+      "seeded_found": ["c05-swallow-zero", "c05-weakened-test"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Both seeded defects found as critical with confirmed outputs; the European-format suggestion is about its own fix and misstates the magnitude ('about one cent')."
+    },
+    "Y": {
+      "seeded_found": ["c05-swallow-zero", "c05-weakened-test"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Both seeded defects found (weakened assertion inside finding 1), with failing tests and a python -c dump; fix validated on 11 inputs."
+    }
+  },
+  "c06-customer-search": {
+    "X": {
+      "seeded_found": ["c06-sqli"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "SQLi proven with UNION payload output and the O'Brien crash, LIKE wildcards folded in; real Unicode case-folding gap; LIMIT is a minor suggestion."
+    },
+    "Y": {
+      "seeded_found": ["c06-sqli"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "SQLi, Unicode case-folding and LIKE wildcards (also_valid) each backed by a failing pytest; well-graded severities."
+    }
+  },
+  "c07-token-expiry": {
+    "X": {
+      "seeded_found": ["c07-naive-aware"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Naive/aware TypeError proven with two failing proof tests; explains why the naive fixture keeps the suite green."
+    },
+    "Y": {
+      "seeded_found": ["c07-naive-aware"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same defect shown with a REPL TypeError, notes utcnow deprecation (also_valid), and flags the unrealistic naive test fixture as a separate real item."
+    }
+  },
+  "c08-find-user": {
+    "X": {
+      "seeded_found": ["c08-caller-break"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Caller break shown via REPL TypeError, rated critical (one above key); dead UserNotFound is a real minor follow-up."
+    },
+    "Y": {
+      "seeded_found": ["c08-caller-break"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Single high finding with failing proof test and diff check that api.py is unchanged; dead exception noted inline."
+    }
+  },
+  "c09-clean-refactor": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Clean approve; claims a 200k-sample differential check in prose only."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Clean approve backed by a shown differential run (checked=160088 mismatches=0)."
+    }
+  },
+  "c10-clean-slugify": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approve with one accurate optional nit (ß/Ł/Æ/Ø not transliterated); non-Latin fallback correctly treated as handled."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approve with the same accurate nit and a shown node probe table; router/old-link concern kept as a question."
+    }
+  },
+  "h01-revenue-cache": {
+    "X": {
+      "seeded_found": ["h01-cross-tenant-cache"],
+      "findings_total": 4,
+      "real_findings": 4,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Cross-tenant cache key found as critical with a reproduced dashboard leak; also_valid average mix, real test-isolation and minor unbounded-growth notes."
+    },
+    "Y": {
+      "seeded_found": ["h01-cross-tenant-cache"],
+      "findings_total": 5,
+      "real_findings": 5,
+      "false_positives": [],
+      "nits_or_suggestions": 3,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same critical leak plus also_valid average mix and a pre-existing TTLCache expiry KeyError race, each with a failing proof test; test-gap nits."
+    }
+  },
+  "h02-headcount-allocation": {
+    "X": {
+      "seeded_found": ["h02-rounding-unbalanced"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Per-share rounding imbalance proven with UnbalancedJournalError output and a 1460/5000 sweep; property-test nit matches also_valid."
+    },
+    "Y": {
+      "seeded_found": ["h02-rounding-unbalanced"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same defect rated critical with a reproduced table of failing splits; also_valid headcount validation as a suggestion."
+    }
+  },
+  "h03-price-list-import": {
+    "X": {
+      "seeded_found": ["h03-pool-slot-leak"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Pool slot leak on failed import proven with two PoolExhausted tests; empty-upload and BOM concerns raised as questions."
+    },
+    "Y": {
+      "seeded_found": ["h03-pool-slot-leak"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same leak as critical with a reproduced PoolExhausted; adds a real empty-upload data-loss risk and the also_valid raw-exception UX point."
+    }
+  },
+  "h04-login-return-to": {
+    "X": {
+      "seeded_found": ["h04-open-redirect"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Unanchored host regex and a genuine second bypass (same-origin '//' path) both shown with input/output listings; config-location suggestion is minor."
+    },
+    "Y": {
+      "seeded_found": ["h04-open-redirect"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same two open-redirect bypasses, each with node --test output and a combined proof test."
+    }
+  },
+  "h05-usage-billing": {
+    "X": {
+      "seeded_found": ["h05-last-day-dropped"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Inclusive-end off-by-one found as critical with a reproduction; real PR/code pricing mismatch (hedged, asks pricing owner) and UTC bucketing gap."
+    },
+    "Y": {
+      "seeded_found": ["h05-last-day-dropped"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same three findings, graded critical/high/medium, each with a failing proof test and printed values."
+    }
+  },
+  "h06-flag-env-override": {
+    "X": {
+      "seeded_found": ["h06-zero-override-ignored"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Zero-override ignored via || found as critical with reproduced percentages; correctly notes Number('') is 0; logging/resolve-once suggestion is reasonable."
+    },
+    "Y": {
+      "seeded_found": ["h06-zero-override-ignored"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Same defect at high with a failing test on the real process.env path; nit on hex/exponent parsing and adding a 0 test (also_valid)."
+    }
+  },
+  "h07-clean-webhook-retries": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Clean approve; avoids the POST-retry trap, puts 5xx-list and sequential-dispatch points in questions, one URL-logging nit."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves; avoids the POST-retry trap, but files the also_valid sequential-dispatch note and URL logging as 'should fix', which is heavy for a clean PR."
+    }
+  },
+  "h08-clean-thumbnail-concurrency": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Clean approve with two optional nits (non-array iterables, per-upload limit); does not fall for the shared-index race trap."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Clean approve with the iterable nit; explicitly explains why the shared next index is not a race."
+    }
+  }
+}

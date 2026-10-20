@@ -1,0 +1,442 @@
+{
+  "_scoring_rules": {
+    "evidence_executed": "Counted only when the review shows a captured run: a command or test invocation with its output, or a captured output block (traceback, assertion failure, exit status, git diff, probe output). Inline prose claims such as 'Confirmed by running it: X returns Y' with no captured output are NOT counted.",
+    "findings_total": "Top-level items presented as defects, findings, suggestions or nits asking for a change. Praise, 'checked and fine', and explicit questions for the author are excluded. Sub-points inside one item are not counted separately.",
+    "real_findings": "Seeded defects, also_valid items, or issues verified as genuinely real and material. True-but-low-value suggestions are counted in nits_or_suggestions, not as real and not as false positives.",
+    "false_positives": "Claims that are wrong, or defect claims at should-fix level or higher that are not actually problems.",
+    "nits_or_suggestions": "Items the review itself labels as nit, suggestion, optional, low, or 'consider'.",
+    "severity_calibrated": "Set to true for clean cases, where there is nothing to calibrate."
+  },
+  "c01-idempotent-charge": {
+    "X": {
+      "seeded_found": ["c01-race"],
+      "findings_total": 4,
+      "real_findings": 4,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 3,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Proves the race with a failing threaded test. Also proves a real migration crash on existing DBs and the key not being scoped per customer (also_valid)."
+    },
+    "Y": {
+      "seeded_found": ["c01-race"],
+      "findings_total": 5,
+      "real_findings": 5,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct race, non-unique index, mismatched-params and capture-before-insert items, all argued by reasoning with no executed proof."
+    }
+  },
+  "c02-invoice-pdf": {
+    "X": {
+      "seeded_found": ["c02-idor"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "IDOR proven with a failing node test. Invalid-PDF stub is traced honestly. The test-gap nit is also_valid."
+    },
+    "Y": {
+      "seeded_found": ["c02-idor"],
+      "findings_total": 5,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 3,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Finds the IDOR and the test gap. Says it was 'confirmed by running' but shows no output. Adds a redundant route-consolidation suggestion and a style nit."
+    }
+  },
+  "c03-paginate": {
+    "X": {
+      "seeded_found": ["c03-last-page"],
+      "findings_total": 3,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Floor-division bug proven with a failing test. The 'helper never wired' point is true, but rated HIGH for an endpoint outside the repo, which over-states it."
+    },
+    "Y": {
+      "seeded_found": ["c03-last-page"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct ceil fix and test-gap item. The wiring concern is suitably hedged. 'Confirmed' is claimed inline with no captured output."
+    }
+  },
+  "c04-notify-all": {
+    "X": {
+      "seeded_found": ["c04-foreach-async"],
+      "findings_total": 4,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Covers early return, wrong count and the unhandled-rejection crash. Its probe results are quoted inline only. The allSettled item is an optional design suggestion."
+    },
+    "Y": {
+      "seeded_found": ["c04-foreach-async"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Crash and wrong count are both shown with captured node output. Correctly flags the tautological test."
+    }
+  },
+  "c05-parse-amount": {
+    "X": {
+      "seeded_found": ["c05-swallow-zero", "c05-weakened-test"],
+      "findings_total": 5,
+      "real_findings": 4,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Finds both seeded defects with correct mechanisms, but with inline 'confirmed' claims only. The European-format caution is about the proposed fix, not about the PR."
+    },
+    "Y": {
+      "seeded_found": ["c05-swallow-zero", "c05-weakened-test"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Both seeded defects are backed by captured python output, failing proof tests and the git diff of the weakened assertion. Precise."
+    }
+  },
+  "c06-customer-search": {
+    "X": {
+      "seeded_found": ["c06-sqli"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "SQLi and the apostrophe crash are both proven with failing tests. The fix also escapes LIKE wildcards (also_valid)."
+    },
+    "Y": {
+      "seeded_found": ["c06-sqli"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 2,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct SQLi plus the also_valid LIKE-wildcard and test-gap items. The payload result is quoted inline without a captured run."
+    }
+  },
+  "c07-token-expiry": {
+    "X": {
+      "seeded_found": ["c07-naive-aware"],
+      "findings_total": 3,
+      "real_findings": 3,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct naive/aware TypeError, naive-token test and utcnow deprecation (also_valid). The TypeError is quoted inline, with no captured run."
+    },
+    "Y": {
+      "seeded_found": ["c07-naive-aware"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "TypeError proven with a captured pytest failure. The test-input finding is traced and labelled as traced."
+    }
+  },
+  "c08-find-user": {
+    "X": {
+      "seeded_found": ["c08-caller-break"],
+      "findings_total": 4,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 3,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct caller break, rated Critical against a High key (within one level). Adds a speculative external-callers suggestion and a Python-version nit."
+    },
+    "Y": {
+      "seeded_found": ["c08-caller-break"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "A single precise finding, proven with a captured pytest TypeError."
+    }
+  },
+  "c09-clean-refactor": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves and describes a differential equivalence check against main. No output is shown for it."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves correctly, with a brief rationale."
+    }
+  },
+  "c10-clean-slugify": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves with one Low note on non-ASCII letters (also_valid), backed by captured node output."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves. Its one 'should fix' is a hedged request to confirm the out-of-repo router parses id-slug. Legitimate as a question, but not a defect."
+    }
+  },
+  "h01-revenue-cache": {
+    "X": {
+      "seeded_found": ["h01-cross-tenant-cache"],
+      "findings_total": 4,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 3,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Cross-tenant leak is shown with a reproduction output block, and the average_order inconsistency is also_valid. The unbounded-cache item is low value, and 'per instance' would defeat a per-request cache."
+    },
+    "Y": {
+      "seeded_found": ["h01-cross-tenant-cache"],
+      "findings_total": 2,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Leak proven with a captured failing pytest. Correctly declines to report the accepted 5-minute staleness."
+    }
+  },
+  "h02-headcount-allocation": {
+    "X": {
+      "seeded_found": ["h02-rounding-unbalanced"],
+      "findings_total": 2,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Rounding imbalance is shown with captured UnbalancedJournalError output, and the largest-remainder fix is correct. The call-site validation item is a minor suggestion."
+    },
+    "Y": {
+      "seeded_found": ["h02-rounding-unbalanced"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "A single precise finding, proven with a failing node test and a checked fix."
+    }
+  },
+  "h03-price-list-import": {
+    "X": {
+      "seeded_found": ["h03-pool-slot-leak"],
+      "findings_total": 2,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Pool leak is shown with a reproduction output block and a correct try/finally fix. The pre-validation item is an optional design suggestion."
+    },
+    "Y": {
+      "seeded_found": ["h03-pool-slot-leak"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "A single precise finding, proven with a failing pytest showing PoolExhausted."
+    }
+  },
+  "h04-login-return-to": {
+    "X": {
+      "seeded_found": ["h04-open-redirect"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Both bypasses (suffix host and userinfo) are proven with a failing node test, and the fix parses the hostname."
+    },
+    "Y": {
+      "seeded_found": ["h04-open-redirect"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Open redirect is shown with a captured block of four bypass URLs. Correct fix, with the test gap noted inside the item."
+    }
+  },
+  "h05-usage-billing": {
+    "X": {
+      "seeded_found": ["h05-last-day-dropped"],
+      "findings_total": 3,
+      "real_findings": 2,
+      "false_positives": ["usage_cents partial-thousand rounding flagged CRITICAL: the cent-rounding is deliberate and asserted by the existing test (usage_cents(1)==1), so re-reading the spec as per-block billing is wrong"],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 2,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Last-day drop and UTC bucketing are proven with failing tests, but a CRITICAL false positive overrides intended, tested pricing behaviour."
+    },
+    "Y": {
+      "seeded_found": ["h05-last-day-dropped"],
+      "findings_total": 3,
+      "real_findings": 2,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Correct last-day and UTC issues, with the test-gap advice inside. Claims 'I checked' inline with no captured output. Correctly treats the rounding as fine."
+    }
+  },
+  "h06-flag-env-override": {
+    "X": {
+      "seeded_found": ["h06-zero-override-ignored"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Zero-override bug is shown with an output block. The fix handles the empty string, and the zero-case test gap is noted."
+    },
+    "Y": {
+      "seeded_found": ["h06-zero-override-ignored"],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 1,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "A single precise finding, proven with a failing node test and an enumerated fix check."
+    }
+  },
+  "h07-clean-webhook-retries": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 1,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Effectively approves, with the sequential-dispatch design note (also_valid). Avoids the duplicate-POST trap."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 1,
+      "real_findings": 1,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves with notes. Its Medium dispatch-blocking item is also_valid, and it explicitly verifies Webhook-Id dedup instead of flagging retries."
+    }
+  },
+  "h08-clean-thumbnail-concurrency": {
+    "X": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves correctly. It does not raise the shared-index race false positive."
+    },
+    "Y": {
+      "seeded_found": [],
+      "findings_total": 0,
+      "real_findings": 0,
+      "false_positives": [],
+      "nits_or_suggestions": 0,
+      "evidence_executed": 0,
+      "verdict_correct": true,
+      "severity_calibrated": true,
+      "notes": "Approves correctly, after a thorough checked-and-fine pass that includes extra probes. No false positives."
+    }
+  }
+}

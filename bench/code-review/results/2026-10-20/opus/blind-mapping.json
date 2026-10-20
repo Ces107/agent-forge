@@ -1,0 +1,74 @@
+{
+  "c01-idempotent-charge": {
+    "X": "A",
+    "Y": "B"
+  },
+  "c02-invoice-pdf": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c03-paginate": {
+    "X": "A",
+    "Y": "B"
+  },
+  "c04-notify-all": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c05-parse-amount": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c06-customer-search": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c07-token-expiry": {
+    "X": "A",
+    "Y": "B"
+  },
+  "c08-find-user": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c09-clean-refactor": {
+    "X": "B",
+    "Y": "A"
+  },
+  "c10-clean-slugify": {
+    "X": "B",
+    "Y": "A"
+  },
+  "h01-revenue-cache": {
+    "X": "B",
+    "Y": "A"
+  },
+  "h02-headcount-allocation": {
+    "X": "A",
+    "Y": "B"
+  },
+  "h03-price-list-import": {
+    "X": "A",
+    "Y": "B"
+  },
+  "h04-login-return-to": {
+    "X": "B",
+    "Y": "A"
+  },
+  "h05-usage-billing": {
+    "X": "B",
+    "Y": "A"
+  },
+  "h06-flag-env-override": {
+    "X": "B",
+    "Y": "A"
+  },
+  "h07-clean-webhook-retries": {
+    "X": "A",
+    "Y": "B"
+  },
+  "h08-clean-thumbnail-concurrency": {
+    "X": "B",
+    "Y": "A"
+  }
+}

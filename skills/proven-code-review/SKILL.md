@@ -64,7 +64,9 @@ Before a suspicion becomes a finding, try to prove yourself wrong:
 - Is it already prevented elsewhere: middleware, a caller's validation, a database constraint,
   the type system, a framework default? Search for it.
 - Can the triggering input reach this code? Trace it from a real entry point.
-- Is the behaviour intended, according to a comment, a test, the spec or the PR text?
+- Is the behaviour intended, according to a comment, a test, the spec or the PR text? A behaviour
+  that a test explicitly asserts is intended unless the PR text or spec contradicts it; at most
+  ask about it.
 - Would a user, the data or the business actually be harmed?
 
 Refuted → drop it silently. Undecidable → a **question for the author** (three at most), never a
@@ -105,7 +107,8 @@ Use `assets/report-template.md`. Order findings by severity, then by evidence (P
   Medium/Low) · `APPROVE` (nothing material).
 - **Severity:** Critical = security breach, data loss or corruption, wrong money, outage of a
   main path · High = wrong behaviour or crash on a realistic path, broken caller contract ·
-  Medium = real but narrow edge case · Low = minor, cheap to fix.
+  Medium = real but narrow edge case · Low = minor, cheap to fix. When torn between two levels,
+  pick the lower one: inflated severity costs the reader's trust in the rest of the review.
 - Every finding names `file:line`, the concrete trigger (input or interleaving), the
   consequence, the evidence, and a minimal fix as code.
 - **Checked and fine:** list what you examined and found correct. It shows coverage and makes a
