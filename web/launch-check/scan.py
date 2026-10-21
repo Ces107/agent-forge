@@ -31,7 +31,9 @@ guard.install()
 REQ_TIMEOUT = 8.0
 BUDGET = 30.0          # seconds for the whole scan (typical: 5-20 s)
 SUB_CAP = 20.0         # cap for each vendored audit subprocess
-MAX_ASSETS = 15
+MAX_ASSETS = 40        # first-party scripts scanned for keys (3 MB each, 15 MB in all, inside the time budget)
+SCRIPT_WORKERS = 6
+SCRIPT_PHASE = 8.0     # seconds: no new batch of scripts after this (keeps the scan near 20 s on a small CPU)
 lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-launch check, web")
 lc.AREAS = [("security", "Security"), ("phone", "Phone design (basic)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
@@ -48,6 +50,124 @@ lc.SECRETS["google-api"] = (lc.SECRETS["google-api"][0], "MEDIUM", GOOGLE_TITLE,
 
 class ScanError(Exception):
     """A message that is safe to show the visitor."""
+
+
+# ------------------------------------------------------------------ which scripts are the site's own
+TWO_LEVEL_TLDS = {"co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "com.au", "net.au", "org.au",
+                  "co.nz", "org.nz", "co.jp", "ne.jp", "or.jp", "com.br", "net.br", "com.mx", "com.ar", "co.in",
+                  "net.in", "org.in", "co.za", "com.sg", "com.hk", "com.tr", "com.cn", "com.tw", "co.kr", "co.il",
+                  "com.es", "com.pl", "co.id", "com.my", "com.ph", "com.vn", "com.ng", "com.eg", "com.co", "com.pe"}
+# Hosts where every customer gets a subdomain: treat them as public suffixes (a.vercel.app is not b.vercel.app).
+SHARED_HOSTS = ("vercel.app", "netlify.app", "pages.dev", "workers.dev", "lovable.app", "lovableproject.com",
+                "github.io", "web.app", "firebaseapp.com", "onrender.com", "herokuapp.com", "replit.app", "repl.co",
+                "fly.dev", "railway.app", "surge.sh", "glitch.me", "azurestaticapps.net", "amplifyapp.com",
+                "cloudfront.net", "b-cdn.net", "supabase.co", "bolt.host", "webflow.io", "framer.app", "wixsite.com")
+# App hosts / CDNs that serve a site's OWN bundles: scanned even when the host differs from the page.
+APP_HOSTS = ("vercel.app", "netlify.app", "pages.dev", "lovable.app", "lovableproject.com", "cloudfront.net",
+             "b-cdn.net")
+THIRD_PARTY = ("googletagmanager.com", "google-analytics.com", "googleapis.com", "gstatic.com", "google.com",
+               "doubleclick.net", "segment.com", "segment.io", "hotjar.com", "intercom.io", "intercomcdn.com",
+               "stripe.com", "stripe.network", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com", "cloudflare.com",
+               "cloudflareinsights.com", "facebook.net", "connect.facebook.net", "clarity.ms", "posthog.com",
+               "mixpanel.com", "amplitude.com", "sentry-cdn.com", "sentry.io", "crisp.chat", "tawk.to",
+               "hubspot.com", "hs-scripts.com", "hs-analytics.net", "plausible.io", "umami.is", "vercel-insights.com",
+               "vercel-scripts.com", "twitter.com", "x.com", "linkedin.com", "licdn.com", "tiktok.com", "youtube.com",
+               "paypal.com", "recaptcha.net", "hcaptcha.com", "cookiebot.com", "onetrust.com", "cookielaw.org",
+               "jquery.com", "bootstrapcdn.com", "fontawesome.com", "typekit.net", "calendly.com", "zdassets.com",
+               "zendesk.com", "drift.com", "fullstory.com", "logrocket.com", "datadoghq-browser-agent.com")
+
+
+def registrable(host):
+    """Simple eTLD+1: example.co.uk, myapp.vercel.app, example.com."""
+    labels = (host or "").lower().rstrip(".").split(".")
+    if len(labels) < 2:
+        return host or ""
+    last2 = ".".join(labels[-2:])
+    if last2 in TWO_LEVEL_TLDS or last2 in SHARED_HOSTS or ".".join(labels[-3:]) in SHARED_HOSTS:
+        n = 4 if ".".join(labels[-3:]) in SHARED_HOSTS else 3
+        return ".".join(labels[-n:])
+    return last2
+
+
+def _under(host, suffixes):
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def script_party(url, base):
+    """'first' (same site, same registrable domain, or an app host serving bundles) | 'third' | 'bad'."""
+    try:
+        parts = urlparse.urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return "bad"
+    if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
+        return "bad"
+    base_host = (urlparse.urlsplit(base).hostname or "").lower()
+    if registrable(host) == registrable(base_host):
+        return "first"
+    if _under(host, THIRD_PARTY):
+        return "third"
+    if host.endswith(".supabase.co") and parts.path.startswith("/storage/v1/object/public/"):
+        return "first"
+    if _under(host, APP_HOSTS):
+        return "first"
+    return "third"
+
+
+def scan_scripts(fetcher, base, resp, parser):
+    """Secrets in the HTML, inline scripts and the site's own JS bundles (same registrable domain or an app host),
+    fetched in parallel. Third-party scripts (analytics, widgets, npm CDNs) are counted, never fetched."""
+    base = resp.url
+    text = lc.decode(resp.body)
+    hits = lc.scan_text(text, "page HTML")
+    backend = lc.find_backends(text, {})
+    seen, queue, third = set(), [], 0
+    for src in parser.scripts:
+        full = urlparse.urljoin(base, src.strip()).split("#", 1)[0]
+        party = script_party(full, base)
+        if party == "third":
+            third += 1
+        elif party == "first" and full not in seen:
+            seen.add(full)
+            queue.append(full)
+    assets = {"same_origin": len(queue), "scanned": 0, "bytes": 0, "skipped_offsite": third}
+    lock = threading.Lock()
+    started = time.time()
+
+    def fetch(src):
+        r, _chain = fetcher.get(src, lc.MAX_ASSET, start=src)  # redirects only within the script's own host
+        if r.status != 200 or script_party(r.url, base) != "first":
+            return src, None
+        return src, lc.decode(r.body)
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=SCRIPT_WORKERS) as pool:
+        while queue and assets["scanned"] < MAX_ASSETS and assets["bytes"] < lc.MAX_TOTAL:
+            if fetcher.deadline - time.time() < 2 or time.time() - started > SCRIPT_PHASE:
+                break
+            take = min(12, MAX_ASSETS - assets["scanned"])
+            batch, queue = queue[:take], queue[take:]
+            for src, body in pool.map(fetch, batch):
+                if body is None:
+                    continue
+                with lock:
+                    if assets["scanned"] >= MAX_ASSETS or assets["bytes"] >= lc.MAX_TOTAL:
+                        break
+                    assets["scanned"] += 1
+                    assets["bytes"] += len(body)
+                where = urlparse.urlsplit(src)
+                label = where.path if script_party(src, base) == "first" and where.hostname == urlparse.urlsplit(base).hostname \
+                    else f"{where.hostname}{where.path}"
+                hits += lc.scan_text(body, label or src)
+                lc.find_backends(body, backend)
+                for m in re.finditer(r"""(?:import\(|from\s*|import\s*)["'`](\.{0,2}/[^"'`\s]{1,200}\.m?js)["'`]""", body):
+                    nxt = urlparse.urljoin(src, m.group(1)).split("#", 1)[0]
+                    if nxt not in seen and script_party(nxt, base) == "first":
+                        seen.add(nxt)
+                        queue.append(nxt)
+                        assets["same_origin"] += 1
+    assets["backend"] = backend
+    return lc.secret_findings(hits), assets
 
 
 class BudgetFetcher(lc.Fetcher):
@@ -219,9 +339,9 @@ def scan(raw_url):
         t.start()
 
     notes, skipped = [], {}
-    findings, assets = lc.scan_site(fetcher, final, resp, parser, MAX_ASSETS)
-    if assets["skipped_offsite"] and not assets["same_origin"]:
-        notes.append(f"{assets['skipped_offsite']} scripts load from another host (CDN): not scanned for keys")
+    findings, assets = scan_scripts(fetcher, final, resp, parser)
+    if assets["skipped_offsite"] and not assets["scanned"]:
+        notes.append(f"{assets['skipped_offsite']} scripts load from third-party hosts: not scanned for keys")
     findings += lc.check_headers(resp, final)
     https_f, note = lc.check_https(fetcher, final, chain)
     findings += https_f

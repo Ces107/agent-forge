@@ -220,13 +220,13 @@ def secret_banner(report):
     secrets_found = [f for f in report["findings"] if f["rule"].startswith("secret-") and f["severity"] in ("HIGH", "MEDIUM")]
     assets = report["facts"].get("assets") or {}
     n, off = assets.get("scanned", 0), assets.get("skipped_offsite", 0)
-    scope = f"{n} script{'s' if n != 1 else ''} checked" + (f", {off} on another host not checked" if off else "")
+    scope = f"{n} script{'s' if n != 1 else ''} checked" + (f"; {off} third-party script{'s' if off != 1 else ''} skipped" if off else "")
     if secrets_found:
         return (f'<div class="lc-bad">✗ Secret key found in your site\'s code <small>({len(secrets_found)} found, '
                 f'{esc(scope)}: see “Fix this first”)</small></div>')
     if n == 0 and off:
         return (f'<div class="lc-mid">No secret keys in your page HTML <small>({off} script{"s" if off != 1 else ""} '
-                f'load from another host and were not checked: run the full Launch Check on your build)</small></div>')
+                f'are third-party (analytics, widgets) and were not checked)</small></div>')
     return f'<div class="lc-ok">✓ No secret keys found in your site\'s code <small>({esc(scope)})</small></div>'
 
 

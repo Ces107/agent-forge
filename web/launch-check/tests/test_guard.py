@@ -204,6 +204,25 @@ class GoogleKey(unittest.TestCase):
         self.assertNotIn(FAKE_GOOGLE_KEY, app.result_page(report, "n"))
 
 
+class ScriptScope(unittest.TestCase):
+    def test_registrable(self):
+        self.assertEqual(scan.registrable("frontend-assets.supabase.com"), "supabase.com")
+        self.assertEqual(scan.registrable("cdn.shop.example.co.uk"), "example.co.uk")
+        self.assertEqual(scan.registrable("my-app.vercel.app"), "my-app.vercel.app")
+
+    def test_party(self):
+        base = "https://supabase.com/"
+        for url, want in [("https://frontend-assets.supabase.com/a.js", "first"), ("https://d1.cloudfront.net/a.js", "first"),
+                          ("https://x.supabase.co/storage/v1/object/public/a.js", "first"),
+                          ("https://x.supabase.co/rest/v1/", "third"), ("https://www.googletagmanager.com/gtm.js", "third"),
+                          ("https://cdn.jsdelivr.net/npm/a", "third"), ("https://js.stripe.com/v3", "third"),
+                          ("https://other-site.com/a.js", "third"), ("file:///etc/passwd", "bad"),
+                          ("https://user@cdn.supabase.com/a.js", "bad")]:
+            with self.subTest(url=url):
+                self.assertEqual(scan.script_party(url, base), want)
+        self.assertEqual(scan.script_party("https://js.stripe.com/v3", "https://stripe.com/"), "first")
+
+
 class Presentation(unittest.TestCase):
     def test_variants_render(self):
         for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
