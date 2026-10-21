@@ -56,15 +56,26 @@ def _browser_through_guard(module):
         return pw.chromium.launch(headless=True, args=CHROMIUM_ARGS, chromium_sandbox=False,
                                   proxy={"server": f"http://127.0.0.1:{port}", "bypass": "<-loopback>"})
 
+    import json
+    import os
+    only = json.loads(os.environ.get("LC_MARKS") or "{}")  # {check: label}: box only the web result's top problems
+
     def annotate(pages, findings, shots_dir, slug):
         out = {}
         shots_dir.mkdir(parents=True, exist_ok=True)
         for width, page in pages.items():
             marks = []
+            per_label = {}
             for f in findings:
-                color = {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
+                if only and f["check"] not in only:
+                    continue
+                color = "#dc2626" if only else {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
+                label = ("#" + only[f["check"]]) if only else "#%d" % f["rank"]
                 for bx in f.get("boxes", {}).get(width, [])[:4]:
-                    marks.append({"box": bx, "label": "#%d" % f["rank"], "color": color})
+                    if only and per_label.get(label, 0) >= 3:
+                        break
+                    per_label[label] = per_label.get(label, 0) + 1
+                    marks.append({"box": bx, "label": label, "color": color})
             page.evaluate(module.ANNOTATE_JS, marks)
             path = shots_dir / ("%s-%d.jpg" % (slug, width))
             page.screenshot(path=str(path), type="jpeg", quality=62,
@@ -121,7 +132,7 @@ if __name__ == "__main__":
         pass
     module = importlib.import_module(ALLOWED[name])
     if name == "geo_audit.py":  # web budget: read at most 3 sitemap files (a big sitemap index can take 10+ s)
-        module.MAX_SITEMAP_FILES["network"] = 3
+        module.MAX_SITEMAP_FILES["network"] = 4  # the index + up to 3 child sitemaps
         _bound_llms(module)
         _cap_crawl_delay(module)
     if name == "polish_audit.py":

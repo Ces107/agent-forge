@@ -881,11 +881,21 @@ class Audit:
                 continue
             try:
                 tree = ElementTree.fromstring(resp.body)
+                tag = tree.tag.split("}")[-1]
+                locs = [self.rehost(el.text.strip()) for el in tree.iter() if el.tag.split("}")[-1] == "loc" and el.text]
             except ElementTree.ParseError as exc:
-                self.sitemap_info["errors"].append(f"{url}: {exc}")
-                continue
-            tag = tree.tag.split("}")[-1]
-            locs = [self.rehost(el.text.strip()) for el in tree.iter() if el.tag.split("}")[-1] == "loc" and el.text]
+                # web copy (launch-check web, 2026-10-21): a sitemap bigger than the read cap is cut, not invalid.
+                # Keep the <loc> values that arrived and say the file was only partly read.
+                head = resp.body[:4096].decode("utf-8", "replace")
+                if len(resp.body) >= MAX_BODY - 16 and re.search(r"<(urlset|sitemapindex)\b", head):
+                    info["truncated"] = True
+                    self.notes.append(f"{url} is larger than {MAX_BODY // 1_000_000} MB: read partly")
+                    tag = "sitemapindex" if "<sitemapindex" in head else "urlset"
+                    locs = [self.rehost(m.strip()) for m in
+                            re.findall(r"<loc>\s*([^<\s]{1,2000})\s*</loc>", resp.body.decode("utf-8", "replace"))]
+                else:
+                    self.sitemap_info["errors"].append(f"{url}: {exc}")
+                    continue
             if tag == "sitemapindex":
                 for loc in locs:
                     if self.same_site(loc):

@@ -235,11 +235,12 @@ def validate(raw):
     return url
 
 
-def run_vendored(script, args, timeout):
+def run_vendored(script, args, timeout, extra_env=None):
     """The CLI's run_vendored, but through run_guarded.py (SSRF guard installed in the child too)."""
     cmd = [sys.executable, str(HERE / "run_guarded.py"), script] + args
     env = {k: v for k, v in os.environ.items() if not k.lower().endswith("_proxy")}
     env.update({"PYTHONIOENCODING": "utf-8"})
+    env.update(extra_env or {})
     try:
         run = subprocess.run(cmd, capture_output=True, timeout=max(2.0, timeout), stdin=subprocess.DEVNULL,  # nosec B603
                              env=env, cwd=str(HERE))
@@ -253,7 +254,35 @@ def run_vendored(script, args, timeout):
 
 BROWSER = threading.BoundedSemaphore(1)   # one Chromium at a time (512 MB instance)
 RENDER_BUDGET = float(os.environ.get("LC_RENDER_BUDGET", "12"))  # hard wall clock for the phone render
-RENDER_ENABLED = os.environ.get("LC_RENDER", "1") != "0"
+RENDER_MODE = os.environ.get("LC_RENDER", "0")      # "0" off, "sync" inside the scan, "async" after the result
+RENDER_ENABLED = RENDER_MODE == "sync"
+ASYNC_BUDGET = 45.0
+
+
+def render_phone(url, marks, budget=ASYNC_BUDGET):
+    """Background render (after the result is shown): the page at 375 px with ONLY the given problems boxed.
+    marks = {polish check name: label}. Returns JPEG bytes, or None when busy, failed or too slow."""
+    import json as _json
+    import shutil
+    import tempfile
+    if not marks or not BROWSER.acquire(blocking=False):
+        return None
+    shots = tempfile.mkdtemp(prefix="lc-async-")
+    try:
+        t0 = time.time()
+        report, err = run_vendored("polish_audit.py", [url, "--viewports", "375", "--json", "--shots", shots,
+                                                        "--timeout", "25"], budget,
+                                   extra_env={"LC_MARKS": _json.dumps(marks)})
+        sys.stderr.write(f"async render {time.time() - t0:.1f}s engine={(report or {}).get('engine')}\n")
+        path = ((report or {}).get("screenshots") or {}).get("375")
+        if report and report.get("engine") == "playwright" and path and os.path.isfile(path) \
+                and os.path.getsize(path) < 900_000:
+            with open(path, "rb") as fh:
+                return fh.read()
+        return None
+    finally:
+        BROWSER.release()
+        shutil.rmtree(shots, ignore_errors=True)
 
 
 def _group_phone(report, prefix):

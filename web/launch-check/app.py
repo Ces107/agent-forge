@@ -216,6 +216,8 @@ border-radius:12px;padding:13px 20px}.lc-buy:hover{background:#15803d}
 .lc-ph img{width:260px;max-height:560px;object-fit:cover;object-position:top;border:8px solid #0f172a;border-radius:26px;
 display:block;background:#fff}
 .lc-ph ul{margin:0;padding-left:18px;color:#334155;font-size:14px}.lc-ph li{margin:5px 0}.lc-ph li b{color:#c2410c}
+.lc-wait{width:260px;height:420px;border:8px solid #0f172a;border-radius:26px;display:grid;place-items:center;
+color:#64748b;font-size:14px;background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 10px,#f1f5f9 10px,#f1f5f9 20px)}
 .lc-phn{margin:0 0 8px;color:#475569;font-size:14px}.lc-phs{font-size:15px;color:#334155;padding:14px 20px}
 .lc-compare{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;color:#14532d;font-size:14px;
 margin:0 0 12px}
@@ -258,14 +260,22 @@ def stats_json():
                            "by": {k: dict(v) for k, v in STATS["by"].items()}}, indent=1, sort_keys=True)
 
 
+ALIASES = {"launch": "dev"}  # attribution tags that reuse another variant's copy
+
+
 def variant(v):
-    if v == "launch":  # attribution alias
-        return "dev"
-    return v if v in VARIANTS else "dev"
+    """The TAG kept for tracking (form, result page, /go/ links, stats). Aliases stay as typed."""
+    return v if v in VARIANTS or v in ALIASES else "dev"
+
+
+def copy_for(v):
+    """The landing COPY for a tag (aliases resolved)."""
+    v = variant(v)
+    return VARIANTS[ALIASES.get(v, v)]
 
 
 def shell(inner, nonce, v="dev", extra_head="", script=""):
-    h1 = VARIANTS[variant(v)]["h1"]
+    h1 = copy_for(v)["h1"]
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
@@ -283,7 +293,7 @@ def shell(inner, nonce, v="dev", extra_head="", script=""):
 
 def page(nonce, v="dev", url_value="", error="", src=""):
     v = variant(v)
-    d = VARIANTS[v]
+    d = copy_for(v)
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
     src_html = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
     inner = f"""<h1>{esc(d["h1"])}</h1>
@@ -371,9 +381,9 @@ SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill 
     "search": ("single-geo", "Let my AI fix Google & ChatGPT visibility — $19",
                "GEO + SEO Audit: also writes your sitemap, JSON-LD and llms.txt"),
 }
-COMPARE = ("What the full skill adds, measured on news.ycombinator.com: this basic check (page code, 1 screen size) "
-           "flagged 9 spots; the full skill rendered the page at phone, tablet and desktop size and flagged 17 "
-           "(22 with minor ones), each marked on a screenshot, then fixes them and re-scores.")
+COMPARE = ("What the full skill adds: on news.ycombinator.com this basic check (page code, 1 screen size) flags 10 "
+           "spots; the full skill found 18 there in its published benchmark (score 64/100), rendering phone, tablet "
+           "and desktop with every problem marked on a screenshot, and it re-scores after each fix.")
 RUNS = ("Runs inside Claude Code, Cursor or Codex: your AI renders the page, fixes each issue and re-scores until "
         "it passes.")
 CAT_LABEL = {"phone": "Phone layout", "search": "Google & ChatGPT", "speed": "Speed & basics",
@@ -468,7 +478,24 @@ def phone_section(report):
             '</section>')
 
 
-def result_page(report, nonce, v="dev", src=""):
+def phone_slot(report, job_id, state):
+    """Async phone render: a slot that fills itself when the background render is done, or hides."""
+    if state not in ("rendering", "done") or not job_id:
+        return ""
+    top3 = other_items(report)[:3]
+    legend = "".join(f'<li><b>#{i + 1}</b> {esc(scanner.lc.short(f["title"], 90))}</li>'
+                     for i, f in enumerate(top3) if f["area"] == "phone")
+    src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
+    wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
+    return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
+            f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
+            f'with the top problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">'
+            f'Rendered in a real browser at 375 px. Numbered boxes match the free top-3 list:</p><ul>{legend}</ul>'
+            f'<p class="lc-phn">The $19 skill gives your agent every box, plus tablet and desktop, and re-scores after '
+            f'each fix.</p></div></div></section>')
+
+
+def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None):
     fix = other_items(report)
     n = len(fix)
     # the collapsed section shows exactly the things-to-fix list: one count everywhere
@@ -485,7 +512,8 @@ def result_page(report, nonce, v="dev", src=""):
     keys = key_items(report)
     red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
     offer = offer_block(report, v, src)
-    first = secret_banner(report) + phone_section(report) + (ask + offer if red else offer + ask)
+    slot = phone_slot(report, job_id, phone_state)
+    first = secret_banner(report) + (slot or phone_section(report)) + (ask + offer if red else offer + ask)
     summary = (f'<details class="lc-other"><summary>All {n} thing{"s" if n != 1 else ""} to fix <span>score '
                f'{report["score"]}/100 · phone, Google &amp; ChatGPT, speed, security headers</span></summary>'
                f'<div class="lc-oin">')
@@ -494,7 +522,13 @@ b.addEventListener('click',function(){{var t=document.getElementById('p').innerT
 function ok(){{b.textContent='Copied — paste it to your AI';}}
 if(navigator.clipboard&&navigator.clipboard.writeText){{navigator.clipboard.writeText(t).then(ok,function(){{fallback();}});}}else{{fallback();}}
 function fallback(){{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();
-try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();</script>"""
+try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();
+(function(){{var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
+var u=s.getAttribute('data-u'),n=0;function poll(){{n++;fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}})
+.then(function(d){{if(d.state==='done'){{var i=document.getElementById('lc-pi');i.onload=function(){{i.hidden=false;
+var w=document.getElementById('lc-pw');if(w)w.remove();}};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
+else if(d.state==='rendering'&&n<40){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
+setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + '</style><meta name="robots" '
                       'content="noindex"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
@@ -553,6 +587,19 @@ def start_job(url, v, src=""):
         job_id = secrets.token_urlsafe(18)
         JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host}
 
+    def render_later(job, report):
+        """After the result is ready: render the page at 375 px with the free top-3 phone problems boxed."""
+        top3 = other_items(report)[:3]
+        marks = {f["rule"][6:]: str(i + 1) for i, f in enumerate(top3) if f["area"] == "phone"}
+        if not marks:
+            job["phone"] = {"state": "none"}
+            return
+        try:
+            img = scanner.render_phone(report["final_url"], marks)
+        except Exception:  # never break the result page
+            img = None
+        job["phone"] = {"state": "done", "jpg": img} if img else {"state": "none"}
+
     def work():
         job = JOBS.get(job_id)
         if job is None:
@@ -563,7 +610,11 @@ def start_job(url, v, src=""):
         try:
             job.update(state="running", started=time.time())
             report = scanner.scan(url)
+            if scanner.RENDER_MODE == "async" and scanner.BROWSER._value > 0:  # noqa: SLF001 - skip if busy
+                job["phone"] = {"state": "rendering"}
             job.update(state="done", report=report)
+            if job.get("phone", {}).get("state") == "rendering":
+                threading.Thread(target=render_later, args=(job, report), daemon=True).start()
             count("scans_done", job["v"], job["src"])
             if any(f["severity"] != "INFO" for f in report["findings"]):
                 count("results_with_findings", job["v"], job["src"])
@@ -635,9 +686,19 @@ class Handler(BaseHTTPRequestHandler):
                              cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
-        m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status)?", path)
+        m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status|/phone|/phone\.jpg)?", path)
         if m and JOB_ID.fullmatch(m.group(1)):
             job = JOBS.get(m.group(1))
+            if m.group(2) == "/phone":
+                ph = (job or {}).get("phone") or {"state": "none"}
+                if ph["state"] == "rendering" and time.time() - job["t"] > 120:
+                    ph = {"state": "none"}
+                return self.send(200, json.dumps({"state": ph["state"]}), "application/json")
+            if m.group(2) == "/phone.jpg":
+                jpg = ((job or {}).get("phone") or {}).get("jpg")
+                if not jpg:
+                    return self.send(404, "not found", "text/plain; charset=utf-8")
+                return self.send(200, jpg, "image/jpeg", cache="private, max-age=600")
             if m.group(2):
                 state = job_state(job) if job else "gone"
                 return self.send(200, json.dumps({"state": state}), "application/json")
@@ -647,7 +708,8 @@ class Handler(BaseHTTPRequestHandler):
                                                     "Check your app again."), nonce=n)
             state = job_state(job)
             if state == "done":
-                return self.send(200, result_page(job["report"], n, job["v"], job.get("src", "")), nonce=n)
+                return self.send(200, result_page(job["report"], n, job["v"], job.get("src", ""), m.group(1),
+                                                  (job.get("phone") or {}).get("state")), nonce=n)
             if state == "error":
                 return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", ""),
                                            src=job.get("src", "")), nonce=n)

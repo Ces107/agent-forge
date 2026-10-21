@@ -319,7 +319,13 @@ class BrowserProxy(unittest.TestCase):
         self.assertFalse(polish_audit._spacer({"src": "/logo.png", "box": [0, 0, 120, 40]}))
 
     def test_launch_alias(self):
-        self.assertEqual(app.variant("launch"), "dev")
+        self.assertEqual(app.variant("launch"), "launch")          # tag preserved for tracking
+        self.assertEqual(app.copy_for("launch"), app.VARIANTS["dev"])  # copy aliased
+        landing = app.page("n", "launch")
+        self.assertIn('name="v" value="launch"', landing)
+        self.assertIn("still broken", landing)
+        self.assertIn("/go/kit?v=launch&amp;src=x", app.offer_block(REPORT, "launch", "x"))
+        self.assertEqual(app.variant("nonsense"), "dev")
 
 
 class Presentation(unittest.TestCase):
