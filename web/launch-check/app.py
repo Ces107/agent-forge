@@ -106,7 +106,8 @@ margin:0 0 16px;font-weight:600}
 .busy .bar{display:block}.busy .bar i{width:94%}
 .prog{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 22px 18px;
 box-shadow:0 18px 50px rgba(11,18,32,.08)}
-.prog b{font-size:20px}.prog .bar{display:block}.prog .bar i{width:94%}.prog p{color:var(--mut);margin:10px 0 0}
+.prog b{font-size:20px}.prog .bar{display:block}.prog .bar i{width:94%;animation:fill 20s cubic-bezier(.2,.6,.4,1)}
+@keyframes fill{from{width:4%}to{width:94%}}.prog p{color:var(--mut);margin:10px 0 0}
 @media (max-width:520px){.hero{padding-top:26px;min-height:auto}button{width:100%}form{padding:8px}
 input[type=text]{font-size:17px}.exf{padding-left:0}}
 """
@@ -115,10 +116,11 @@ FUNNEL_CSS = """
 .lc-top{max-width:1080px;margin:0 auto;padding:16px 28px 0;display:flex;justify-content:flex-end}
 .lc-top a{color:#0f172a;font-weight:700;text-decoration:none;border:1px solid #e2e8f0;background:#fff;
 border-radius:10px;padding:8px 14px;font-size:14px}
-.lc-ok,.lc-bad{display:flex;gap:10px;align-items:center;border-radius:16px;padding:14px 18px;margin:16px 0 0;
+.lc-mid{background:#fef3c7;border:1px solid #fcd34d;color:#78350f}
+.lc-ok,.lc-bad,.lc-mid{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-radius:16px;padding:14px 18px;margin:16px 0 0;
 font-size:17px;font-weight:750}
 .lc-ok{background:#dcfce7;border:1px solid #86efac;color:#14532d}.lc-bad{background:#fee2e2;border:1px solid #fca5a5;color:#7f1d1d}
-.lc-ok small,.lc-bad small{font-weight:600;font-size:14px;opacity:.85}
+.lc-ok small,.lc-bad small,.lc-mid small{font-weight:600;font-size:14px;opacity:.85}
 .lc-next{max-width:1080px;margin:0 auto;padding:0 28px 48px}
 .lc-next h2{font-size:17px;margin:8px 0 10px;color:#334155}
 .lc-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
@@ -209,6 +211,9 @@ def secret_banner(report):
     if secrets_found:
         return (f'<div class="lc-bad">✗ Secret key found in your site\'s code <small>({len(secrets_found)} found, '
                 f'{esc(scope)}: see “Fix this first”)</small></div>')
+    if n == 0 and off:
+        return (f'<div class="lc-mid">No secret keys in your page HTML <small>({off} script{"s" if off != 1 else ""} '
+                f'load from another host and were not checked: run the full Launch Check on your build)</small></div>')
     return f'<div class="lc-ok">✓ No secret keys found in your site\'s code <small>({esc(scope)})</small></div>'
 
 
