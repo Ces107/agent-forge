@@ -437,7 +437,5 @@ max-height:none}
 font-size:20px;font-weight:800;text-decoration:none;cursor:pointer}.fp-buy:hover{background:#15803d}
 .fp-buy s{opacity:.7;font-weight:600;margin-left:6px}
 .fp-terms{color:#475569;font-size:13px;margin-top:8px}.fp-terms s{opacity:.8}
-.fp-agensi{max-width:1080px;margin:0 auto;padding:0 28px 36px;font-size:13px;color:#64748b}.fp-agensi a{color:#64748b}
-@media (max-width:700px){.fp-files{grid-template-columns:1fr}.fp{padding:16px}.fp-desk{width:140px}.fp-buy{display:block}
-.fp-agensi{padding:0 16px 28px}}
+@media (max-width:700px){.fp-files{grid-template-columns:1fr}.fp{padding:16px}.fp-desk{width:140px}.fp-buy{display:block}}
 """

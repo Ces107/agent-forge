@@ -200,7 +200,8 @@ def _browser_through_guard(module):
             return r.abort()
         return r.continue_()
 
-    def measure_browser(target, viewports, timeout, offline, shots_dir, max_elements=3000):
+    def measure_browser(target, viewports, timeout, offline, shots_dir, max_elements=None):
+        max_elements = max_elements or (1500 if web else 3000)  # the free phone render measures the top of the page
         """Fast render for a small server CPU: DOM ready, load (max 1.5 s), cookie banner dismissed, short settle."""
         url, _kind = module.to_url(target)
         pw = module.load_playwright()().start()
@@ -227,7 +228,6 @@ def _browser_through_guard(module):
                 except Exception:  # page navigated while we looked
                     pass
                 page.evaluate("() => window.scrollTo(0, 0)")
-                page.wait_for_timeout(250)
                 data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": mobile})
                 data["viewport"] = width
                 results[width] = data
