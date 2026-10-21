@@ -72,8 +72,40 @@ def _browser_through_guard(module):
             out[width] = str(path)
         return out
 
+    def measure_browser(target, viewports, timeout, offline, shots_dir, max_elements=3000):
+        """Faster single-size render for a small server CPU: DOM ready + a short settle, no network-idle wait,
+        no video/audio/websockets, fewer elements measured."""
+        url, _kind = module.to_url(target)
+        pw = module.load_playwright()().start()
+        browser = launch(pw)
+        try:
+            results, pages = {}, {}
+            for width in viewports:
+                ctx = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=True, has_touch=True,
+                                          device_scale_factor=1)
+                ctx.route("**/*", lambda route: route.abort() if route.request.resource_type in (
+                    "media", "websocket", "eventsource", "manifest", "texttrack") else route.continue_())
+                ctx.add_init_script(module.INIT_JS)
+                page = ctx.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+                try:
+                    page.wait_for_load_state("load", timeout=2500)
+                except Exception:  # slow images: measure what is there
+                    pass
+                page.wait_for_timeout(300)
+                data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": True})
+                data["viewport"] = width
+                results[width] = data
+                pages[width] = page
+            return results, pages, (pw, browser)
+        except Exception:
+            browser.close()
+            pw.stop()
+            raise
+
     module.launch = launch
     module.annotate = annotate
+    module.measure_browser = measure_browser
 
 
 ALLOWED = {"geo_audit.py": "geo_audit", "polish_audit.py": "polish_audit"}
