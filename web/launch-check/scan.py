@@ -38,7 +38,17 @@ lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-l
 lc.AREAS = [("security", "Security"), ("phone", "Phone layout (1 size)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
 lc.MAX_LINKS = 6
-lc.PHONE_PLAIN["images"] = "Some images are missing a size or alt text or are stretched"
+lc.PHONE_PLAIN["images"] = "Some images are missing a size or alt text"
+lc.PHONE_PLAIN["images-stretched"] = "Some images are visibly stretched out of shape"
+STRETCH = re.compile(r"stretched (\d+)%")
+
+
+def phone_key(f):
+    """Polish check name, with visibly stretched images (> 10 % distortion) split from missing alt/size."""
+    if f.get("check") == "images":
+        m = STRETCH.search(f.get("detail", ""))
+        return "images-stretched" if m and int(m.group(1)) > 10 else "images"
+    return f.get("check")
 lc.PHONE_PLAIN.setdefault("fixed-width", "Some parts have a fixed width that is wider than a phone screen")
 lc.PHONE_PLAIN.setdefault("type-scale", "Font sizes do not follow a clear scale: the page looks unplanned")
 lc.LINK_DELAY = 0.05
@@ -261,7 +271,8 @@ ASYNC_BUDGET = 45.0
 
 def render_phone(url, marks, budget=ASYNC_BUDGET):
     """Background render (after the result is shown): the page at 375 px with ONLY the given problems boxed.
-    marks = {polish check name: label}. Returns JPEG bytes, or None when busy, failed or too slow."""
+    marks = {phone key: label}. Returns (JPEG bytes, stats) or None when busy, failed, too slow or nothing matched.
+    stats = {"matched": [labels with a box], "boxed": findings boxed, "total": phone findings in the render}."""
     import json as _json
     import shutil
     import tempfile
@@ -277,8 +288,15 @@ def render_phone(url, marks, budget=ASYNC_BUDGET):
         path = ((report or {}).get("screenshots") or {}).get("375")
         if report and report.get("engine") == "playwright" and path and os.path.isfile(path) \
                 and os.path.getsize(path) < 900_000:
+            stats_path = os.path.join(shots, "marks.json")
+            stats = {}
+            if os.path.isfile(stats_path):
+                with open(stats_path, encoding="utf-8") as fh:
+                    stats = _json.load(fh)
+            if not stats.get("matched"):
+                return None  # no box matched an element: show nothing rather than an unmarked page
             with open(path, "rb") as fh:
-                return fh.read()
+                return fh.read(), stats
         return None
     finally:
         BROWSER.release()
@@ -289,7 +307,7 @@ def _group_phone(report, prefix):
     grouped = {}
     for f in report.get("findings", []):
         sev = {"HIGH": "HIGH", "MED": "MEDIUM", "MEDIUM": "MEDIUM"}.get(f.get("severity", ""), "LOW")
-        g = grouped.setdefault(f.get("check"), {"sev": sev, "count": 0, "first": f})
+        g = grouped.setdefault(phone_key(f), {"sev": sev, "count": 0, "first": f})
         g["count"] += max(1, int(f.get("count", 1) or 1))
         if lc.SEV_ORDER[sev] < lc.SEV_ORDER[g["sev"]]:
             g["sev"] = sev
@@ -437,7 +455,10 @@ def things_to_fix(findings):
     """THE count used everywhere on the result page: HIGH + MEDIUM, keys excluded (they have their own section),
     phone layout and Google/ChatGPT first, security headers last."""
     items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)]
-    return sorted(items, key=lambda f: (FIX_ORDER.index(f["area"]), lc.SEV_ORDER[f["severity"]]))
+    return sorted(items, key=lambda f: (f["rule"] in DEMOTED, FIX_ORDER.index(f["area"]), lc.SEV_ORDER[f["severity"]]))
+
+
+DEMOTED = {"phone-images"}  # missing alt/size is real but invisible: never ahead of visible problems
 
 
 def area_note(key, fix, skipped):

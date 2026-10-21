@@ -60,6 +60,11 @@ _jobs_lock = threading.Lock()
 JOB_ID = re.compile(r"[A-Za-z0-9_-]{20,40}")
 
 VARIANTS = {
+    "launch": {"h1": "See your site on a phone, problems marked. Free.", "source": "",
+               "sub": "Your page in a real phone browser with the top 3 problems boxed, plus what Google & ChatGPT "
+                      "can't read. Under a minute, no signup.",
+               "button": "See my site on a phone", "example_img": True,
+               "ex": "", "fix": ""},
     "dev": {"h1": "Built your site with Claude Code or Cursor? See what's still broken.", "source": "",
             "sub": "Free scan in under 20 s: phone layout, what Google & ChatGPT can't read, keys in your code. "
                    "Then your AI fixes it.",
@@ -137,6 +142,13 @@ border-radius:14px;padding:12px 16px}
 .tag{flex:none;font-size:11px;font-weight:800;border-radius:6px;padding:3px 7px;background:#fee2e2;color:#b91c1c;margin-top:2px}
 .ex.amber{border-left-color:#d97706}.ex.amber .tag{background:#fef3c7;color:#b45309}
 .exf{color:#334155;font-size:14px;margin-top:4px;padding-left:52px}
+.exph{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.exphr{display:flex;gap:18px;align-items:flex-start}.exphr img{width:190px;height:auto;border:7px solid #0b1220;
+border-radius:24px;display:block;flex:none}
+.exphr ol{list-style:none;margin:6px 0 0;padding:0;font-size:16px;font-weight:650;color:#1e293b}
+.exphr li{margin:0 0 10px}.exphr li b{background:#dc2626;color:#fff;border-radius:5px;padding:1px 6px;font-size:13px;
+margin-right:6px}.also{color:#475569;font-size:13px;margin-top:10px}
+@media (max-width:520px){.exphr img{width:150px}.exphr ol{font-size:14px}}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
 .chip{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:13px;
 font-weight:650;color:#334155;display:flex;align-items:center;gap:7px}
@@ -218,6 +230,7 @@ display:block;background:#fff}
 .lc-ph ul{margin:0;padding-left:18px;color:#334155;font-size:14px}.lc-ph li{margin:5px 0}.lc-ph li b{color:#c2410c}
 .lc-wait{width:300px;height:460px;border:8px solid #0f172a;border-radius:26px;display:grid;place-items:center;
 color:#64748b;font-size:14px;background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 10px,#f1f5f9 10px,#f1f5f9 20px)}
+.lc-more{margin:6px 0 10px;font-weight:700;color:#c2410c;font-size:15px}
 .lc-phn{margin:0 0 8px;color:#475569;font-size:14px}.lc-phs{font-size:15px;color:#334155;padding:14px 20px}
 .lc-compare{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;color:#14532d;font-size:14px;
 margin:0 0 12px}
@@ -260,7 +273,7 @@ def stats_json():
                            "by": {k: dict(v) for k, v in STATS["by"].items()}}, indent=1, sort_keys=True)
 
 
-ALIASES = {"launch": "dev"}  # attribution tags that reuse another variant's copy
+ALIASES = {}  # attribution tags that reuse another variant's copy, e.g. {"launch2": "launch"}
 
 
 def variant(v):
@@ -296,24 +309,34 @@ def page(nonce, v="dev", url_value="", error="", src=""):
     d = copy_for(v)
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
     src_html = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
+    if d.get("example_img"):
+        example = ('<div class="exph"><div class="exl">Example result</div><div class="exphr">'
+                   '<img src="/example-phone.jpg" width="190" height="547" alt="An AI-built landing page at 375 px '
+                   'with its top 3 problems boxed: text under a badge, a cut-off button, low-contrast text">'
+                   '<ol><li><b>#1</b> Text hidden under a badge</li><li><b>#2</b> Button text cut off</li>'
+                   '<li><b>#3</b> Grey text too faint to read</li></ol></div></div>'
+                   '<div class="also">Also checks: leaked API keys · Supabase/Firebase keys · security headers</div>')
+    else:
+        example = (f'<div class="ex{" amber" if d.get("sev") == "MEDIUM" else ""}"><div class="exl">Example result</div>'
+                   f'<div class="exr"><span class="tag">{d.get("sev", "HIGH")}</span><span>{esc(d["ex"])}</span></div>'
+                   f'<div class="exf">{esc(d["fix"])}</div></div>'
+                   '<div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>'
+                   '<span class="chip"><b style="background:#d97706"></b>Supabase/Firebase keys</span>'
+                   '<span class="chip"><b style="background:#2563eb"></b>Security headers</span>'
+                   '<span class="more">+ Google &amp; ChatGPT basics</span></div>')
     inner = f"""<h1>{esc(d["h1"])}</h1>
 {err}<form method="post" action="/check" id="f">
 <input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
  placeholder="https://your-app.com" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
 <input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">
-<button type="submit" id="b">Check my app — free</button>
+<button type="submit" id="b">{esc(d.get("button", "Check my app — free"))}</button>
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
 <div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
 <div class="biz">Free scan. Optional fix kits on Agensi.</div>
 {src_html}
-<div class="ex{' amber' if d.get('sev') == 'MEDIUM' else ''}"><div class="exl">Example result</div><div class="exr"><span class="tag">{d.get('sev', 'HIGH')}</span><span>{esc(d["ex"])}</span></div>
-<div class="exf">{esc(d["fix"])}</div></div>
-<div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>
-<span class="chip"><b style="background:#d97706"></b>Supabase/Firebase keys</span>
-<span class="chip"><b style="background:#2563eb"></b>Security headers</span>
-<span class="more">+ Google &amp; ChatGPT basics</span></div>"""
+{example}"""
     script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
 document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 10–20 s';}},0);}});
@@ -399,7 +422,7 @@ def go(name, v, src):
     return f"/go/{name}?" + urlparse.urlencode({"v": variant(v), "src": clean_src(src)})
 
 
-def offer_block(report, v="dev", src=""):
+def offer_block(report, v="dev", src="", phone=None):
     fix = other_items(report)
     n = len(fix)
     if not any(f["area"] in ("phone", "search", "speed") for f in fix):
@@ -418,7 +441,10 @@ def offer_block(report, v="dev", src=""):
     compare = f'<p class="lc-compare">{esc(COMPARE)}</p>' if lead == "phone" else ""
     if lead:
         name, verb, product = SINGLES[lead]
-        choices += (f'<div><a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b>{esc(verb)}</b>'
+        if lead == "phone" and phone and phone.get("total"):
+            verb = f"Let my AI fix these {phone['total']} spots — $19"
+        choices += (f'<div><a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b id="lc-b1" '
+                    f'data-lead="{lead}">{esc(verb)}</b>'
                     f'<span>{esc(product)}</span></a><p class="lc-runs">{RUNS}</p></div>')
     kit_what = ("Design + Google & ChatGPT: Web + SEO kit (3 skills)" if search_ran
                 else "Design + SEO: Web + SEO kit (3 skills)")
@@ -478,24 +504,39 @@ def phone_section(report):
             '</section>')
 
 
-def phone_slot(report, job_id, state):
+def phone_counts(stats):
+    """Real counts from the render: labels that matched an element, spots boxed, spots left."""
+    if not stats:
+        return {}
+    total, boxed = int(stats.get("total", 0)), int(stats.get("boxed", 0))
+    return {"matched": stats.get("matched", []), "boxed": boxed, "more": max(0, total - boxed), "total": total}
+
+
+def phone_slot(report, job_id, state, stats=None):
     """Async phone render: a slot that fills itself when the background render is done, or hides."""
     if state not in ("rendering", "done") or not job_id:
         return ""
+    counts = phone_counts(stats)
+    matched = set(counts.get("matched", []))
     top3 = other_items(report)[:3]
-    legend = "".join(f'<li><b>#{i + 1}</b> {esc(scanner.lc.short(f["title"], 90))}</li>'
+    legend = "".join(f'<li data-l="#{i + 1}"{" hidden" if state == "done" and f"#{i + 1}" not in matched else ""}>'
+                     f'<b>#{i + 1}</b> {esc(scanner.lc.short(f["title"], 90))}</li>'
                      for i, f in enumerate(top3) if f["area"] == "phone")
+    more = counts.get("more", 0)
+    more_html = (f'<p class="lc-more" id="lc-more"{"" if more else " hidden"}>+{more} more spot{"s" if more != 1 else ""} '
+                 f'on your page</p>')
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
     wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with the top problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">'
             f'Rendered in a real browser at 375 px. Numbered boxes match the free top-3 list:</p><ul>{legend}</ul>'
+            f'{more_html}'
             f'<p class="lc-phn">The $19 skill gives your agent every box, plus tablet and desktop, and re-scores after '
             f'each fix.</p></div></div></section>')
 
 
-def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None):
+def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, phone_stats=None):
     fix = other_items(report)
     n = len(fix)
     # the collapsed section shows exactly the things-to-fix list: one count everywhere
@@ -511,8 +552,8 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None):
            if prompt else "")
     keys = key_items(report)
     red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
-    offer = offer_block(report, v, src)
-    slot = phone_slot(report, job_id, phone_state)
+    offer = offer_block(report, v, src, phone_counts(phone_stats) if phone_state == "done" else None)
+    slot = phone_slot(report, job_id, phone_state, phone_stats)
     first = secret_banner(report) + (slot or phone_section(report)) + (ask + offer if red else offer + ask)
     summary = (f'<details class="lc-other"><summary>All {n} thing{"s" if n != 1 else ""} to fix <span>score '
                f'{report["score"]}/100 · phone, Google &amp; ChatGPT, speed, security headers</span></summary>'
@@ -526,7 +567,11 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
 (function(){{var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
 var u=s.getAttribute('data-u'),n=0;function poll(){{n++;fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}})
 .then(function(d){{if(d.state==='done'){{var i=document.getElementById('lc-pi');i.onload=function(){{i.hidden=false;
-var w=document.getElementById('lc-pw');if(w)w.remove();}};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
+var w=document.getElementById('lc-pw');if(w)w.remove();var m=d.matched||[];
+document.querySelectorAll('#lc-ps li[data-l]').forEach(function(li){{if(m.indexOf(li.getAttribute('data-l'))<0)li.hidden=true;}});
+var mo=document.getElementById('lc-more');if(mo&&d.more>0){{mo.textContent='+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page';mo.hidden=false;}}
+var b=document.getElementById('lc-b1');if(b&&b.getAttribute('data-lead')==='phone'&&d.total>0){{b.textContent='Let my AI fix these '+d.total+' spots \u2014 $19';}}
+}};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
 else if(d.state==='rendering'&&n<40){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
 setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
@@ -595,10 +640,14 @@ def start_job(url, v, src=""):
             job["phone"] = {"state": "none"}
             return
         try:
-            img = scanner.render_phone(report["final_url"], marks)
+            out = scanner.render_phone(report["final_url"], marks)
         except Exception:  # never break the result page
-            img = None
-        job["phone"] = {"state": "done", "jpg": img} if img else {"state": "none"}
+            out = None
+        if out:
+            jpg, stats = out
+            job["phone"] = {"state": "done", "jpg": jpg, "stats": stats}
+        else:
+            job["phone"] = {"state": "none"}
 
     def work():
         job = JOBS.get(job_id)
@@ -693,7 +742,8 @@ class Handler(BaseHTTPRequestHandler):
                 ph = (job or {}).get("phone") or {"state": "none"}
                 if ph["state"] == "rendering" and time.time() - job["t"] > 120:
                     ph = {"state": "none"}
-                return self.send(200, json.dumps({"state": ph["state"]}), "application/json")
+                return self.send(200, json.dumps({"state": ph["state"], **phone_counts(ph.get("stats"))}),
+                                 "application/json")
             if m.group(2) == "/phone.jpg":
                 jpg = ((job or {}).get("phone") or {}).get("jpg")
                 if not jpg:
@@ -709,13 +759,18 @@ class Handler(BaseHTTPRequestHandler):
             state = job_state(job)
             if state == "done":
                 return self.send(200, result_page(job["report"], n, job["v"], job.get("src", ""), m.group(1),
-                                                  (job.get("phone") or {}).get("state")), nonce=n)
+                                                  (job.get("phone") or {}).get("state"),
+                                                  (job.get("phone") or {}).get("stats")), nonce=n)
             if state == "error":
                 return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", ""),
                                            src=job.get("src", "")), nonce=n)
             return self.send(200, progress_page(m.group(1), job, n), nonce=n)
         if path in ("/favicon.svg", "/favicon.ico"):
             return self.send(200, FAVICON, "image/svg+xml", cache="public, max-age=86400")
+        if path == "/example-phone.jpg":
+            ex = Path(__file__).resolve().parent / "static" / "example-phone.jpg"
+            if ex.is_file():
+                return self.send(200, ex.read_bytes(), "image/jpeg", cache="public, max-age=86400")
         if path == "/og.png":
             og = Path(__file__).resolve().parent / "static" / "og.png"
             if og.is_file():

@@ -58,6 +58,7 @@ def _browser_through_guard(module):
 
     import json
     import os
+    import re
     only = json.loads(os.environ.get("LC_MARKS") or "{}")  # {check: label}: box only the web result's top problems
 
     def annotate(pages, findings, shots_dir, slug):
@@ -66,16 +67,29 @@ def _browser_through_guard(module):
         for width, page in pages.items():
             marks = []
             per_label = {}
+            boxed = 0
             for f in findings:
-                if only and f["check"] not in only:
+                key = f["check"]
+                if key == "images":
+                    m = re.search(r"stretched (\d+)%", f.get("detail", ""))
+                    key = "images-stretched" if m and int(m.group(1)) > 10 else "images"
+                if only and key not in only:
                     continue
                 color = "#dc2626" if only else {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
-                label = ("#" + only[f["check"]]) if only else "#%d" % f["rank"]
+                label = ("#" + only[key]) if only else "#%d" % f["rank"]
+                drew = False
                 for bx in f.get("boxes", {}).get(width, [])[:4]:
                     if only and per_label.get(label, 0) >= 3:
                         break
+                    if not bx or bx[1] > 1560 or bx[2] < 2 or bx[3] < 2:
+                        continue  # outside the screenshot or not a real element
                     per_label[label] = per_label.get(label, 0) + 1
                     marks.append({"box": bx, "label": label, "color": color})
+                    drew = True
+                boxed += drew
+            if only:
+                (shots_dir / "marks.json").write_text(json.dumps({
+                    "matched": sorted(per_label), "boxed": boxed, "total": len(findings)}), encoding="utf-8")
             page.evaluate(module.ANNOTATE_JS, marks)
             path = shots_dir / ("%s-%d.jpg" % (slug, width))
             page.screenshot(path=str(path), type="jpeg", quality=62,

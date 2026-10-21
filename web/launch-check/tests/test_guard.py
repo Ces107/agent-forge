@@ -320,12 +320,38 @@ class BrowserProxy(unittest.TestCase):
 
     def test_launch_alias(self):
         self.assertEqual(app.variant("launch"), "launch")          # tag preserved for tracking
-        self.assertEqual(app.copy_for("launch"), app.VARIANTS["dev"])  # copy aliased
         landing = app.page("n", "launch")
         self.assertIn('name="v" value="launch"', landing)
-        self.assertIn("still broken", landing)
+        self.assertIn("See your site on a phone, problems marked. Free.", landing)
+        self.assertIn(">See my site on a phone</button>", landing)
+        self.assertIn('src="/example-phone.jpg"', landing)
+        self.assertIn("Also checks: leaked API keys", landing)
         self.assertIn("/go/kit?v=launch&amp;src=x", app.offer_block(REPORT, "launch", "x"))
         self.assertEqual(app.variant("nonsense"), "dev")
+
+
+class PhoneFunnel(unittest.TestCase):
+    def test_invisible_image_issues_never_lead(self):
+        fs = [_f("phone", "MEDIUM", "Some images are missing a size or alt text", "phone-images"),
+              _f("search", "MEDIUM", "No sitemap", "search-sitemap-missing"),
+              _f("phone", "MEDIUM", "Some text is hard to read", "phone-contrast")]
+        order = [f["rule"] for f in scan.things_to_fix(fs)]
+        self.assertEqual(order[-1], "phone-images")
+        self.assertEqual(scan.phone_key({"check": "images", "detail": "image stretched 25% out of its aspect ratio"}),
+                         "images-stretched")
+        self.assertEqual(scan.phone_key({"check": "images", "detail": "image stretched 6% out of its aspect ratio"}),
+                         "images")
+        self.assertEqual(scan.phone_key({"check": "images", "detail": "2 image(s) without alt"}), "images")
+
+    def test_slot_uses_real_counts(self):
+        rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some text is hard to read", "phone-contrast"),
+                                      _f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
+        stats = {"matched": ["#1"], "boxed": 4, "total": 15}
+        html_ = app.phone_slot(rep, "J" * 24, "done", stats)
+        self.assertIn("+11 more spots on your page", html_)
+        self.assertIn('data-l="#2" hidden', html_)          # #2 matched no element: not listed
+        self.assertIn("Let my AI fix these 15 spots — $19", app.offer_block(rep, "launch", "", app.phone_counts(stats)))
+        self.assertEqual(app.phone_slot(rep, "J" * 24, "none"), "")
 
 
 class Presentation(unittest.TestCase):
