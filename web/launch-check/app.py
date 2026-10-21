@@ -63,11 +63,11 @@ VARIANTS = {
     "bill": {"h1": "A leaked Gemini key cost a 3-person startup $82,314 in 48 hours.",
              "source": "Reported by the developer, via The Register, March 2026",
              "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
-             "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
+             "sev": "MEDIUM", "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
     "gemini": {"h1": "$6,000 in 40 minutes, from one key in a site's JavaScript.",
                "source": "Developer's report on Google's AI developer forum, April 2026",
                "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
-               "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
+               "sev": "MEDIUM", "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
 SUB ="See the result usually in under 20 seconds. Free, no signup, nothing stored."
 
@@ -105,6 +105,7 @@ border-radius:14px;padding:12px 16px}
 .exl{font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
 .exr{display:flex;gap:10px;align-items:flex-start;font-weight:700;font-size:16px}
 .tag{flex:none;font-size:11px;font-weight:800;border-radius:6px;padding:3px 7px;background:#fee2e2;color:#b91c1c;margin-top:2px}
+.ex.amber{border-left-color:#d97706}.ex.amber .tag{background:#fef3c7;color:#b45309}
 .exf{color:#334155;font-size:14px;margin-top:4px;padding-left:52px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
 .chip{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:13px;
@@ -188,7 +189,7 @@ def page(nonce, v="key", url_value="", error=""):
 <div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
 {src}
-<div class="ex"><div class="exl">Example result</div><div class="exr"><span class="tag">HIGH</span><span>{esc(d["ex"])}</span></div>
+<div class="ex{' amber' if d.get('sev') == 'MEDIUM' else ''}"><div class="exl">Example result</div><div class="exr"><span class="tag">{d.get('sev', 'HIGH')}</span><span>{esc(d["ex"])}</span></div>
 <div class="exf">{esc(d["fix"])}</div></div>
 <div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>
 <span class="chip"><b style="background:#d97706"></b>Supabase/Firebase keys</span>
