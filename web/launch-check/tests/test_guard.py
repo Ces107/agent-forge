@@ -153,5 +153,24 @@ class WebLayer(unittest.TestCase):
         self.assertTrue(report is None or not report.get("findings"))
 
 
+class Presentation(unittest.TestCase):
+    def test_variants_render(self):
+        for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
+                          ("bogus", "secret key sitting")]:
+            with self.subTest(v=v):
+                self.assertIn(needle, app.page("n", v))
+
+    def test_supabase_found_is_amber(self):
+        out = scan.backend_findings({"supabase_urls": ["https://abcdefghijklmnopqrst.supabase.co"], "anon_keys": ["x"]})
+        self.assertEqual(out[0]["severity"], "MEDIUM")
+        self.assertTrue(out[0]["title"].startswith("Supabase found: make sure Row Level Security"))
+
+    def test_banner(self):
+        ok = {"findings": [], "facts": {"assets": {"scanned": 3}}}
+        self.assertIn("No secret keys found", app.secret_banner(ok))
+        leak = {"findings": [{"rule": "secret-stripe-secret", "severity": "HIGH"}], "facts": {"assets": {}}}
+        self.assertIn("Secret key found", app.secret_banner(leak))
+
+
 if __name__ == "__main__":
     unittest.main()

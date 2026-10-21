@@ -29,14 +29,14 @@ import launch_check as lc  # noqa: E402
 guard.install()
 
 REQ_TIMEOUT = 8.0
-BUDGET = 42.0          # seconds for the whole scan (the request handler waits a little longer)
-SUB_CAP = 30.0         # cap for each vendored audit subprocess
+BUDGET = 30.0          # seconds for the whole scan (typical: 5-20 s)
+SUB_CAP = 20.0         # cap for each vendored audit subprocess
 MAX_ASSETS = 15
 lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-launch check, web")
 lc.AREAS = [("security", "Security"), ("phone", "Phone design (basic)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
-lc.MAX_LINKS = 10
-lc.LINK_DELAY = 0.2
+lc.MAX_LINKS = 6
+lc.LINK_DELAY = 0.05
 
 
 class ScanError(Exception):
@@ -122,8 +122,8 @@ def check_phone_basic(url, timeout):
 
 
 def check_search(url, timeout):
-    report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "3", "--delay", "0.3",
-                                                "--link-budget", "8", "--timeout", str(int(REQ_TIMEOUT))], timeout)
+    report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.2",
+                                                "--link-budget", "5", "--timeout", str(int(REQ_TIMEOUT))], timeout)
     if report is None:
         return None, [], f"skipped: {err}", {}
     out = []
@@ -141,6 +141,31 @@ def check_search(url, timeout):
         out.append(lc.finding("search", f"search-{f.get('rule')}", sev, title, f.get("fix", ""), where=where,
                               detail=f"{f.get('count')}/{f.get('checked')} {f.get('title', '')}"))
     return int(report.get("score", 0)), out[:12], "", {"pages": report.get("pages_crawled")}
+
+
+def backend_findings(backend):
+    """Supabase / Firebase config seen in the page (passive: nothing is queried)."""
+    out = []
+    host = lambda u: lc.clean(urlparse.urlsplit(u).hostname or u, 80)  # noqa: E731
+    if backend.get("supabase_urls"):
+        has_key = bool(backend.get("anon_keys"))
+        out.append(lc.finding(
+            "security", "supabase-found", "MEDIUM" if has_key else "LOW",
+            "Supabase found: make sure Row Level Security is on for every table (the free Launch Check skill can "
+            "test it on your own app)",
+            "Turn on Row Level Security with per-user policies for every Supabase table (anonymous visitors must not "
+            "read private tables), then run the free Launch Check skill with --owner-check on your own app to confirm.",
+            where=host(backend["supabase_urls"][0]),
+            detail="Supabase URL and public key in the page" if has_key else "Supabase URL in the page"))
+    if backend.get("firebase_urls"):
+        out.append(lc.finding(
+            "security", "firebase-found", "MEDIUM",
+            "Firebase found: make sure your database rules require sign-in (the free Launch Check skill can test it "
+            "on your own app)",
+            "Set Firebase Realtime Database / Firestore rules so .read and .write require sign-in and each user reaches "
+            "only their own data, then run the free Launch Check skill with --owner-check on your own app.",
+            where=host(backend["firebase_urls"][0])))
+    return out
 
 
 def scan(raw_url):
@@ -197,14 +222,9 @@ def scan(raw_url):
         notes.append(note)
     findings += lc.check_cookies(resp, final) + lc.check_mixed(parser, final)
     backend = assets.pop("backend", {})
-    if backend.get("supabase_urls") or backend.get("firebase_urls"):
-        which = "Supabase" if backend.get("supabase_urls") else "Firebase"
-        findings.append(lc.finding(
-            "security", "db-not-tested", "LOW",
-            f"{which} database found in your page: this web check does not test whether anyone can read your tables",
-            f"Run the full Launch Check with --owner-check on your own site (free, in Claude Code or Cursor), or open "
-            f"the {which} security advisor and confirm every table has access rules."))
-        notes.append(f"{which} found: the open-table test runs only in the full Launch Check, on your own site")
+    findings += backend_findings(backend)
+    if any(f["rule"] == "supabase-found" for f in findings):
+        findings = [f for f in findings if f["rule"] != "supabase-anon-ok"]  # one Supabase item, not two
     scores = {"security": lc.area_score([f for f in findings if f["area"] == "security"])}
     if any(f["severity"] == "HIGH" for f in findings if f["area"] == "security"):
         scores["security"] = min(scores["security"], 30)
@@ -229,7 +249,8 @@ def scan(raw_url):
     findings.sort(key=lambda f: (lc.SEV_ORDER[f["severity"]], [k for k, _ in lc.AREAS].index(f["area"])))
     overall = lc.combine(scores, findings)
     highs = sum(1 for f in findings if f["severity"] == "HIGH")
-    fix_first = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM")][:5]
+    urgent = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM")]
+    fix_first = ([f for f in urgent if f["area"] == "security"] + [f for f in urgent if f["area"] != "security"])[:5]
     sec_high = sum(1 for f in findings if f["severity"] == "HIGH" and f["area"] == "security")
     word, sub = lc.verdict(overall, highs, len(fix_first), sec_high)
     return {

@@ -1,13 +1,17 @@
 """Launch Check web: paste your URL, get the report card. Python standard library only.
 
 Run: PORT=8000 python app.py   (binds 0.0.0.0:$PORT)
-Routes: GET / (form), POST /check (scan), GET /healthz, /robots.txt, /sitemap.xml, /llms.txt, /favicon.svg
-Nothing is stored: no database, no files, no analytics. Logs carry the method, path, status and target HOST only.
+Routes: GET / (?v=key|stat|supabase headline variants), POST /check (starts a scan, 303 to /r/<id>),
+GET /r/<id> (progress page, then the report), GET /r/<id>/status (JSON), GET /healthz, /robots.txt, /sitemap.xml,
+/llms.txt, /favicon.svg, /og.png.
+Nothing is written anywhere: a finished report is kept in memory for 10 minutes so its page can load, then dropped.
+Logs carry the method, path (never the query string), status and the target HOST only.
 """
 
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import secrets
@@ -29,55 +33,92 @@ KIT_WEB = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-a
 KIT_GUARD = "https://www.agensi.io/bundles/claude-code-guardrails-safe-honest-agent-kit?utm_source=launchcheck"
 RATE_MAX, RATE_WINDOW = 5, 600          # scans per IP per 10 minutes
 CONCURRENCY = threading.BoundedSemaphore(2)
-WAIT_FOR_SLOT = 12                      # seconds a visitor waits for a free scanner before "busy"
-HARD_WAIT = scanner.BUDGET + 6          # the handler never waits longer than this for a scan
+QUEUE_WAIT = 40                         # seconds a scan may wait for a free scanner
+JOB_TTL = 600                           # finished reports live in memory this long
+JOB_MAX = 300
+STUCK_AFTER = scanner.BUDGET + 40       # a job still running after this is reported as failed
 MAX_BODY = 4096
 _hits: dict[str, deque] = defaultdict(deque)
 _hits_lock = threading.Lock()
+JOBS: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+JOB_ID = re.compile(r"[A-Za-z0-9_-]{20,40}")
+
+VARIANTS = {
+    "key": {"h1": "Is a secret key sitting in your site's code?", "source": "",
+            "ex": "Anyone can see your Stripe secret key in your website's code",
+            "fix": "Fix: move it to a server-side environment variable, then roll the key in Stripe."},
+    "stat": {"h1": "1 in 5 AI-built sites leaks a secret key. Is yours one?",
+             "source": "Red Hunt Labs, 2025: ~26,000 of ~130,000 vibe-coded sites",
+             "ex": "Anyone can see your Stripe secret key in your website's code",
+             "fix": "Fix: move it to a server-side environment variable, then roll the key in Stripe."},
+    "supabase": {"h1": "Is your Supabase key showing in your site's code?",
+                 "source": "Moltbook: a Supabase key in client-side JavaScript, 1.5M API keys exposed (Wiz, Feb 2026)",
+                 "ex": "Your Supabase service_role key is in your website's code: anyone can read and change your database",
+                 "fix": "Fix: use the anon key in the browser, keep service_role on the server only, and rotate it."},
+}
+SUB = "See in about 10 seconds. Free, no signup, nothing stored."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
            '<path d="M24 33l6 6 11-13" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" '
            'stroke-linejoin="round"/></svg>')
 
-DESC = ("Free pre-launch check for apps built with Lovable, Bolt, v0, Replit or Cursor: leaked API keys, security "
-        "headers, phone basics, Google & ChatGPT visibility and speed. No signup, nothing stored.")
+DESC = ("Free check for apps built with Lovable, Bolt, v0, Replit or Cursor: secret keys in your site's code, "
+        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. About 10 seconds, no signup, "
+        "nothing stored.")
 
 CSS = """
-:root{--ink:#0b1220;--mut:#5b6678;--line:#e3e8ef;--bg:#f6f8fb;--card:#fff;--acc:#16a34a;--acc2:#22c55e}
+:root{--ink:#0b1220;--mut:#5b6678;--line:#e3e8ef;--bg:#f6f8fb;--card:#fff;--acc:#16a34a;--acc2:#22c55e;--red:#dc2626}
 *{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--ink);
 font:16px/1.5 "Inter","Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-.hero{min-height:100svh;display:flex;flex-direction:column;justify-content:center;padding:40px 16px 56px;
+.hero{min-height:100svh;padding:44px 16px 56px;
 background:radial-gradient(1200px 600px at 50% -10%,#dcfce7 0,rgba(220,252,231,0) 60%),var(--bg)}
 .in{width:100%;max-width:760px;margin:0 auto}
-.brand{font-weight:800;font-size:17px;letter-spacing:-.01em;margin-bottom:28px;display:flex;align-items:center;gap:8px}
+.brand{font-weight:800;font-size:17px;letter-spacing:-.01em;margin-bottom:26px;display:flex;align-items:center;gap:8px}
 .brand i{font-style:normal;color:var(--acc)}.brand img{width:26px;height:26px}
-h1{font-size:clamp(38px,8.4vw,72px);line-height:1.02;letter-spacing:-.035em;margin:0 0 26px;font-weight:850}
+h1{font-size:clamp(34px,7vw,60px);line-height:1.04;letter-spacing:-.033em;margin:0 0 22px;font-weight:850}
 form{display:flex;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:18px;
 padding:10px;box-shadow:0 1px 2px rgba(11,18,32,.05),0 18px 50px rgba(11,18,32,.08)}
-input[type=url],input[type=text]{flex:1 1 260px;min-width:0;border:0;outline:0;font:inherit;font-size:18px;
+input[type=text]{flex:1 1 260px;min-width:0;border:0;outline:0;font:inherit;font-size:18px;
 padding:14px 12px;background:transparent;color:var(--ink)}
 button{flex:0 0 auto;border:0;border-radius:12px;background:var(--ink);color:#fff;font:inherit;font-weight:750;
 font-size:17px;padding:14px 22px;cursor:pointer}button:hover{background:#1e293b}
 button[disabled]{opacity:.75;cursor:wait}
-.sub{color:var(--mut);margin-top:16px;font-size:15px}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:28px}
+.sub{color:#1e293b;margin-top:14px;font-size:16px;font-weight:600}
+.trust{color:#334155;font-size:15px;margin-top:6px}.trust a{color:#334155;font-weight:650}
+.src{color:#475569;font-size:13px;margin-top:8px}
+.ex{margin-top:22px;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--red);
+border-radius:14px;padding:12px 16px}
+.exl{font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
+.exr{display:flex;gap:10px;align-items:flex-start;font-weight:700;font-size:16px}
+.tag{flex:none;font-size:11px;font-weight:800;border-radius:6px;padding:3px 7px;background:#fee2e2;color:#b91c1c;margin-top:2px}
+.exf{color:#334155;font-size:14px;margin-top:4px;padding-left:52px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
 .chip{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:13px;
 font-weight:650;color:#334155;display:flex;align-items:center;gap:7px}
 .chip b{width:9px;height:9px;border-radius:50%;display:inline-block}
+.more{font-size:13px;font-weight:650;color:var(--mut);padding:6px 4px}
 .err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:12px 16px;
 margin:0 0 16px;font-weight:600}
-.bar{height:4px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:14px;display:none}
-.bar i{display:block;height:100%;width:0;background:var(--acc2);transition:width 45s linear}
-.busy .bar{display:block}.busy .bar i{width:96%}
-.foot{color:var(--mut);font-size:13px;margin-top:36px}.foot a{color:inherit}
-@media (max-width:520px){.hero{justify-content:flex-start;padding-top:28px;min-height:auto}button{width:100%}form{padding:8px}input[type=url],input[type=text]{font-size:17px}}
+.bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:14px;display:none}
+.bar i{display:block;height:100%;width:0;background:var(--acc2);transition:width 20s cubic-bezier(.2,.6,.4,1)}
+.busy .bar{display:block}.busy .bar i{width:94%}
+.prog{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 22px 18px;
+box-shadow:0 18px 50px rgba(11,18,32,.08)}
+.prog b{font-size:20px}.prog .bar{display:block}.prog .bar i{width:94%}.prog p{color:var(--mut);margin:10px 0 0}
+@media (max-width:520px){.hero{padding-top:26px;min-height:auto}button{width:100%}form{padding:8px}
+input[type=text]{font-size:17px}.exf{padding-left:0}}
 """
 
 FUNNEL_CSS = """
 .lc-top{max-width:1080px;margin:0 auto;padding:16px 28px 0;display:flex;justify-content:flex-end}
 .lc-top a{color:#0f172a;font-weight:700;text-decoration:none;border:1px solid #e2e8f0;background:#fff;
 border-radius:10px;padding:8px 14px;font-size:14px}
+.lc-ok,.lc-bad{display:flex;gap:10px;align-items:center;border-radius:16px;padding:14px 18px;margin:16px 0 0;
+font-size:17px;font-weight:750}
+.lc-ok{background:#dcfce7;border:1px solid #86efac;color:#14532d}.lc-bad{background:#fee2e2;border:1px solid #fca5a5;color:#7f1d1d}
+.lc-ok small,.lc-bad small{font-weight:600;font-size:14px;opacity:.85}
 .lc-next{max-width:1080px;margin:0 auto;padding:0 28px 48px}
 .lc-next h2{font-size:17px;margin:8px 0 10px;color:#334155}
 .lc-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
@@ -96,46 +137,85 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def page(body, nonce, title="Is your AI-built app safe to launch? | Launch Check", url_value="", error=""):
-    err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
+def variant(v):
+    return v if v in VARIANTS else "key"
+
+
+def shell(inner, nonce, v="key", extra_head="", script=""):
+    h1 = VARIANTS[variant(v)]["h1"]
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(title)}</title><meta name="description" content="{esc(DESC)}">
+<title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
 <link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<meta property="og:title" content="Is your AI-built app safe to launch?"><meta property="og:description" content="{esc(DESC)}">
+<meta property="og:title" content="{esc(h1)}"><meta property="og:description" content="{esc(DESC)}">
 <meta property="og:type" content="website"><meta property="og:url" content="{SITE}/">
 <meta property="og:image" content="{SITE}/og.png"><meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json" nonce="{nonce}">{{"@context":"https://schema.org","@type":"WebApplication","name":"Launch Check","url":"{SITE}/","applicationCategory":"DeveloperApplication","offers":{{"@type":"Offer","price":"0"}},"description":"{esc(DESC)}"}}</script>
-<style>{CSS}</style></head><body>
+{extra_head}<style>{CSS}</style></head><body>
 <main class="hero"><div class="in">
 <div class="brand"><img src="/favicon.svg" alt="" width="26" height="26"><span>Launch<i>Check</i></span></div>
-<h1>Is your AI-built app safe to launch?</h1>
-{err}
-<form method="post" action="/check" id="f">
+{inner}
+</div></main>{script}</body></html>"""
+
+
+def page(nonce, v="key", url_value="", error=""):
+    v = variant(v)
+    d = VARIANTS[v]
+    err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
+    src = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
+    inner = f"""<h1>{esc(d["h1"])}</h1>
+{err}<form method="post" action="/check" id="f">
 <input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
  placeholder="https://your-app.lovable.app" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
+<input type="hidden" name="v" value="{v}">
 <button type="submit" id="b">Check my app — free</button>
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
-<div class="sub">Security · phone basics · Google &amp; ChatGPT · speed. No signup. Nothing stored.</div>
-<div class="chips"><span class="chip"><b style="background:#16a34a"></b>Leaked API keys</span>
-<span class="chip"><b style="background:#d97706"></b>Security headers</span>
-<span class="chip"><b style="background:#2563eb"></b>Google &amp; AI search</span>
-<span class="chip"><b style="background:#9333ea"></b>Speed &amp; basics</span></div>
-{body}
-<div class="foot">Passive and free: it reads only what any visitor's browser downloads. Not a penetration test.
- · <a href="{GITHUB}">Open source</a></div>
-</div></main>
-<script nonce="{nonce}">
+<div class="sub">{SUB}</div>
+<div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
+{src}
+<div class="ex"><div class="exl">Example result</div><div class="exr"><span class="tag">HIGH</span><span>{esc(d["ex"])}</span></div>
+<div class="exf">{esc(d["fix"])}</div></div>
+<div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>
+<span class="chip"><b style="background:#d97706"></b>Supabase/Firebase keys</span>
+<span class="chip"><b style="background:#2563eb"></b>Security headers</span>
+<span class="more">+ Google &amp; ChatGPT basics</span></div>"""
+    script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
-document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… up to 45 s';}},0);}});
-</script></body></html>"""
+document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 5–20 s';}},0);}});
+</script>"""
+    return shell(inner, nonce, v, script=script)
+
+
+def progress_page(job_id, job, nonce):
+    host = esc(job.get("host", "your site"))
+    waiting = job["state"] == "queued"
+    inner = f"""<div class="prog" role="status"><b>{'Waiting for a free scanner…' if waiting else f'Checking {host}…'}</b>
+<div class="bar" aria-hidden="true"><i></i></div>
+<p>Usually 5–20 s. This page updates by itself.</p></div>"""
+    head = f'<noscript><meta http-equiv="refresh" content="3"></noscript><meta name="robots" content="noindex">'
+    script = f"""<script nonce="{nonce}">(function(){{var u='/r/{job_id}/status';
+function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
+if(d.state==='done'||d.state==='error'||d.state==='gone'){{location.reload();}}else{{setTimeout(poll,1000);}}
+}}).catch(function(){{setTimeout(poll,2000);}});}}setTimeout(poll,1200);}})();</script>"""
+    return shell(inner, nonce, job.get("v", "key"), extra_head=head, script=script)
+
+
+def secret_banner(report):
+    secrets_found = [f for f in report["findings"] if f["rule"].startswith("secret-") and f["severity"] in ("HIGH", "MEDIUM")]
+    assets = report["facts"].get("assets") or {}
+    n, off = assets.get("scanned", 0), assets.get("skipped_offsite", 0)
+    scope = f"{n} script{'s' if n != 1 else ''} checked" + (f", {off} on another host not checked" if off else "")
+    if secrets_found:
+        return (f'<div class="lc-bad">✗ Secret key found in your site\'s code <small>({len(secrets_found)} found, '
+                f'{esc(scope)}: see “Fix this first”)</small></div>')
+    return f'<div class="lc-ok">✓ No secret keys found in your site\'s code <small>({esc(scope)})</small></div>'
 
 
 def result_page(report, nonce):
     doc = scanner.render(report)
     prompt_btn = '<button id="lc-copy" type="button">Copy fix list for your AI</button>'
-    doc, n = re.subn(r'<button onclick="[^"]*">Copy</button>', prompt_btn, doc, count=1)
+    doc = re.sub(r'<button onclick="[^"]*">Copy</button>', prompt_btn, doc, count=1)
     funnel = f"""<section class="lc-next"><h2>Next</h2><div class="lc-cards">
 <a href="{GITHUB}" rel="noopener"><b>Fix it with your AI, free</b><span>Run the full Launch Check in Claude Code or
 Cursor: real phone test, open-database test on your own site, re-check after each fix.</span> <em>GitHub →</em></a>
@@ -153,9 +233,11 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + '</style><meta name="robots" content="noindex">'
                       '<link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
+    doc = doc.replace("</section>\n<div class=\"grid\">", "</section>\n" + secret_banner(report) + "<div class=\"grid\">", 1)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Web version: phone design uses basic checks (no "
-                      "browser), no open-database test. Nothing about this scan was stored."
+                      "browser), no open-database test. Nothing was written to disk: this report stays in memory for "
+                      "10 minutes so the page can load, then it is dropped."
                       + "".join(f"<br>Note: {esc(n)}" for n in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
@@ -187,37 +269,62 @@ def rate_ok(ip, now=None):
         return True, 0
 
 
-def run_scan(url):
-    """Returns (report | None, error message | None). Never blocks longer than HARD_WAIT."""
-    if not CONCURRENCY.acquire(timeout=WAIT_FOR_SLOT):
-        return None, "Two checks are already running. Try again in a minute."
-    box = {}
+def _prune(now):
+    for k in [k for k, j in JOBS.items() if now - j["t"] > JOB_TTL]:
+        JOBS.pop(k, None)
+
+
+def start_job(url, v):
+    """Register a scan and run it in the background. Returns the job id, or None when too many are pending."""
+    now = time.time()
+    host = (urlparse.urlsplit(url if "://" in url else "https://" + url).hostname or "your site")[:80]
+    with _jobs_lock:
+        _prune(now)
+        if len(JOBS) >= JOB_MAX:
+            return None
+        job_id = secrets.token_urlsafe(18)
+        JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "host": host}
 
     def work():
+        job = JOBS.get(job_id)
+        if job is None:
+            return
+        if not CONCURRENCY.acquire(timeout=QUEUE_WAIT):
+            job.update(state="error", error="Two checks are already running. Try again in a minute.")
+            return
         try:
-            box["report"] = scanner.scan(url)
+            job.update(state="running", started=time.time())
+            report = scanner.scan(url)
+            job.update(state="done", report=report)
+            sys.stderr.write(f"scan {host} score={report['score']} {report['seconds']}s\n")
         except scanner.ScanError as exc:
-            box["error"] = str(exc)
+            job.update(state="error", error=str(exc))
+            sys.stderr.write(f"scan {host} refused-or-failed\n")
         except Exception:  # never leak a stack trace to the visitor
-            box["error"] = "Something went wrong while checking this site. Try again, or try your preview address."
+            job.update(state="error", error="Something went wrong while checking this site. Try again, or try "
+                                            "your preview address.")
+            sys.stderr.write(f"scan {host} crashed\n")
         finally:
             CONCURRENCY.release()
 
-    t = threading.Thread(target=work, daemon=True)
-    t.start()
-    t.join(HARD_WAIT)
-    if t.is_alive():
-        return None, "This site took too long to check (the free web check stops at 45 s). Try a lighter page."
-    return box.get("report"), box.get("error")
+    threading.Thread(target=work, daemon=True).start()
+    return job_id
+
+
+def job_state(job):
+    if job["state"] in ("queued", "running") and time.time() - job.get("started", job["t"]) > STUCK_AFTER:
+        job.update(state="error", error="This site took too long to check. Try again, or try a lighter page.")
+    return job["state"]
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "launch-check"
     sys_version = ""
-    protocol_version = "HTTP/1.1"
+    protocol_version = "HTTP/1.0"  # one request per connection: no stale keep-alive sockets behind the proxy
 
     def log_message(self, fmt, *args):  # path only: never the query string, never the body
-        path = urlparse.urlsplit(self.path).path[:80]
+        path = urlparse.urlsplit(self.path).path
+        path = re.sub(r"^/r/[^/]+", "/r/<id>", path)[:80]
         sys.stderr.write(f"{time.strftime('%H:%M:%S')} {self.command} {path} {getattr(self, '_status', '-')}\n")
 
     def send(self, status, body, ctype="text/html; charset=utf-8", nonce=None, cache="no-store", extra=None):
@@ -227,10 +334,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", cache)
+        self.send_header("Connection", "close")
         script = f"'nonce-{nonce}'" if nonce else "'none'"
         self.send_header("Content-Security-Policy",
                          f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; "
-                         "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+                         "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -246,12 +354,30 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
-        path = urlparse.urlsplit(self.path).path
+        parts = urlparse.urlsplit(self.path)
+        path = parts.path
         if path == "/":
+            v = (urlparse.parse_qs(parts.query).get("v") or ["key"])[0]
             n = secrets.token_urlsafe(16)
-            return self.send(200, page("", n), nonce=n, cache="public, max-age=300")
+            return self.send(200, page(n, v), nonce=n, cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
+        m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status)?", path)
+        if m and JOB_ID.fullmatch(m.group(1)):
+            job = JOBS.get(m.group(1))
+            if m.group(2):
+                state = job_state(job) if job else "gone"
+                return self.send(200, json.dumps({"state": state}), "application/json")
+            n = secrets.token_urlsafe(16)
+            if not job:
+                return self.send(404, page(n, error="This result has expired (results are kept for 10 minutes). "
+                                                    "Check your app again."), nonce=n)
+            state = job_state(job)
+            if state == "done":
+                return self.send(200, result_page(job["report"], n), nonce=n)
+            if state == "error":
+                return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", "")), nonce=n)
+            return self.send(200, progress_page(m.group(1), job, n), nonce=n)
         if path in ("/favicon.svg", "/favicon.ico"):
             return self.send(200, FAVICON, "image/svg+xml", cache="public, max-age=86400")
         if path == "/og.png":
@@ -259,8 +385,8 @@ class Handler(BaseHTTPRequestHandler):
             if og.is_file():
                 return self.send(200, og.read_bytes(), "image/png", cache="public, max-age=86400")
         if path == "/robots.txt":
-            return self.send(200, f"User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n", "text/plain; charset=utf-8",
-                             cache="public, max-age=3600")
+            return self.send(200, f"User-agent: *\nAllow: /\nDisallow: /r/\nSitemap: {SITE}/sitemap.xml\n",
+                             "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/sitemap.xml":
             return self.send(200, f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/'
                                   f'schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url></urlset>', "application/xml",
@@ -272,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/check":
             return self.send(303, "", extra={"Location": "/"})
         n = secrets.token_urlsafe(16)
-        return self.send(404, page("", n, error="Page not found."), nonce=n)
+        return self.send(404, page(n, error="Page not found."), nonce=n)
 
     def do_POST(self):
         path = urlparse.urlsplit(self.path).path
@@ -284,25 +410,24 @@ class Handler(BaseHTTPRequestHandler):
             length = 0
         if length <= 0 or length > MAX_BODY:
             return self.send(413, "bad request", "text/plain; charset=utf-8")
-        body = self.rfile.read(length).decode("utf-8", "replace")
-        url = (urlparse.parse_qs(body).get("url") or [""])[0].strip()
+        form = urlparse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+        url = (form.get("url") or [""])[0].strip()
+        v = variant((form.get("v") or ["key"])[0])
         n = secrets.token_urlsafe(16)
         try:
             scanner.validate(url)
         except scanner.ScanError as exc:
-            return self.send(400, page("", n, url_value=url, error=str(exc)), nonce=n)
+            return self.send(400, page(n, v, url_value=url, error=str(exc)), nonce=n)
         ok, wait = rate_ok(client_ip(self))
         if not ok:
-            return self.send(429, page("", n, url_value=url, error=f"5 checks per 10 minutes per visitor. Try again in "
+            return self.send(429, page(n, v, url_value=url, error=f"5 checks per 10 minutes per visitor. Try again in "
                                                                   f"{max(1, wait // 60)} min."), nonce=n,
                              extra={"Retry-After": str(wait)})
-        report, error = run_scan(url)
-        host = (urlparse.urlsplit(url if "://" in url else "https://" + url).hostname or "?")[:80]
-        if error or not report:
-            sys.stderr.write(f"scan {host} refused-or-failed\n")
-            return self.send(422, page("", n, url_value=url, error=error or "Could not check this site."), nonce=n)
-        sys.stderr.write(f"scan {host} score={report['score']} {report['seconds']}s\n")
-        return self.send(200, result_page(report, n), nonce=n)
+        job_id = start_job(url, v)
+        if not job_id:
+            return self.send(503, page(n, v, url_value=url, error="Too many checks right now. Try again in a minute."),
+                             nonce=n)
+        return self.send(303, "", extra={"Location": f"/r/{job_id}"})
 
 
 def main():
