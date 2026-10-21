@@ -142,8 +142,8 @@ class WebLayer(unittest.TestCase):
 
     def test_rate_limit(self):
         ip = "203.0.113.77"
-        results = [app.rate_ok(ip, now=1000 + i)[0] for i in range(6)]
-        self.assertEqual(results, [True] * 5 + [False])
+        results = [app.rate_ok(ip, now=1000 + i)[0] for i in range(app.RATE_MAX + 1)]
+        self.assertEqual(results, [True] * app.RATE_MAX + [False])
         self.assertTrue(app.rate_ok(ip, now=1000 + 601)[0])
 
     def test_subprocess_child_is_guarded(self):

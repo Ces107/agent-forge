@@ -31,7 +31,7 @@ SITE = os.environ.get("PUBLIC_URL", "https://launch-check-upz2.onrender.com").rs
 GITHUB = "https://github.com/Ces107/agent-forge/tree/main/skills/launch-check"
 KIT_WEB = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-ai?utm_source=launchcheck"
 KIT_GUARD = "https://www.agensi.io/bundles/claude-code-guardrails-safe-honest-agent-kit?utm_source=launchcheck"
-RATE_MAX, RATE_WINDOW = 5, 600          # scans per IP per 10 minutes
+RATE_MAX, RATE_WINDOW = 10, 600         # scans per IP per 10 minutes
 CONCURRENCY = threading.BoundedSemaphore(2)
 QUEUE_WAIT = 40                         # seconds a scan may wait for a free scanner
 JOB_TTL = 600                           # finished reports live in memory this long
@@ -50,8 +50,8 @@ VARIANTS = {
             "fix": "Fix: move it to a server-side environment variable, then roll the key in Stripe."},
     "stat": {"h1": "1 in 5 AI-built sites leaks a secret key. Is yours one?",
              "source": "Red Hunt Labs, 2025: ~26,000 of ~130,000 vibe-coded sites",
-             "ex": "Anyone can see your Stripe secret key in your website's code",
-             "fix": "Fix: move it to a server-side environment variable, then roll the key in Stripe."},
+             "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
+             "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
     "supabase": {"h1": "Is your Supabase key showing in your site's code?",
                  "source": "Moltbook: a Supabase key in client-side JavaScript, 1.5M API keys exposed (Wiz, Feb 2026)",
                  "ex": "Your Supabase service_role key is in your website's code: anyone can read and change your database",
@@ -429,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, page(n, v, url_value=url, error=str(exc)), nonce=n)
         ok, wait = rate_ok(client_ip(self))
         if not ok:
-            return self.send(429, page(n, v, url_value=url, error=f"5 checks per 10 minutes per visitor. Try again in "
+            return self.send(429, page(n, v, url_value=url, error=f"{RATE_MAX} checks per 10 minutes per visitor. Try again in "
                                                                   f"{max(1, wait // 60)} min."), nonce=n,
                              extra={"Retry-After": str(wait)})
         job_id = start_job(url, v)
