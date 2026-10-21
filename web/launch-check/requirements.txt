@@ -1,0 +1,1 @@
+# Launch Check web uses the Python standard library only (http.server, urllib). Nothing to install.

@@ -1,0 +1,16 @@
+name: launch-check keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Ping /healthz (keeps the free Render instance awake)
+        run: curl -fsS -m 150 --retry 2 https://launch-check.onrender.com/healthz
