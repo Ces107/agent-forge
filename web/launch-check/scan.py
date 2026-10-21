@@ -37,6 +37,13 @@ lc.AREAS = [("security", "Security"), ("phone", "Phone design (basic)"), ("searc
             ("speed", "Speed & basics")]
 lc.MAX_LINKS = 6
 lc.LINK_DELAY = 0.05
+# Google API keys (AIza..., Maps/Firebase/Gemini): once Gemini is enabled on the project, an unrestricted key in the
+# page is a billable credential (reported bills: $82K in 48 h, ~$6K in 40 min). Amber, not red: a Firebase web key
+# restricted to the domain and APIs is fine.
+GOOGLE_TITLE = "Your Google/Gemini API key is visible in your website's code: anyone can use it on your bill"
+GOOGLE_FIX = ("Restrict the key to your domain and APIs in Google Cloud, or call Gemini from a server function; "
+              "then rotate it.")
+lc.SECRETS["google-api"] = (lc.SECRETS["google-api"][0], "MEDIUM", GOOGLE_TITLE, GOOGLE_FIX)
 
 
 class ScanError(Exception):

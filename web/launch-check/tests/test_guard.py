@@ -153,10 +153,61 @@ class WebLayer(unittest.TestCase):
         self.assertTrue(report is None or not report.get("findings"))
 
 
+FAKE_GOOGLE_KEY = "AIza" + "SyFAKEkeyForTestsOnly0123456789abcd"  # 39 chars, not a real key
+
+
+class FakeApp(http.server.BaseHTTPRequestHandler):
+    """A tiny 'AI-built app': the Google key sits only in the same-origin JS bundle."""
+
+    def do_GET(self):
+        if self.path.startswith("/assets/app.js"):
+            body = f'const firebaseConfig={{apiKey:"{FAKE_GOOGLE_KEY}"}};'.encode()
+            ctype = "application/javascript"
+        else:
+            body = (b'<html><head><title>My test app for launch</title><script type="module" src="/assets/app.js">'
+                    b'</script></head><body><h1>Hi</h1></body></html>')
+            ctype = "text/html"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+class GoogleKey(unittest.TestCase):
+    def test_pattern_and_text(self):
+        hits = scan.lc.scan_text(f'x="{FAKE_GOOGLE_KEY}"', "bundle.js")
+        out = scan.lc.secret_findings(hits)
+        self.assertEqual(out[0]["rule"], "secret-google-api")
+        self.assertEqual(out[0]["severity"], "MEDIUM")
+        self.assertEqual(out[0]["title"], "Your Google/Gemini API key is visible in your website's code: anyone can "
+                                          "use it on your bill")
+        self.assertIn("call Gemini from a server function", out[0]["fix"])
+        self.assertNotIn(FAKE_GOOGLE_KEY, out[0]["value"])  # redacted
+
+    def test_found_in_same_origin_bundle_end_to_end(self):
+        srv = serve(FakeApp)
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
+        try:
+            report = scan.scan(f"http://127.0.0.1:{srv.server_port}/")
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
+            srv.shutdown()
+        g = [f for f in report["findings"] if f["rule"] == "secret-google-api"]
+        self.assertEqual(len(g), 1)
+        self.assertEqual(g[0]["where"], "/assets/app.js")
+        self.assertIn(g[0], report["fix_first"])
+        self.assertIn("Secret key found", app.secret_banner(report))
+        self.assertNotIn(FAKE_GOOGLE_KEY, app.result_page(report, "n"))
+
+
 class Presentation(unittest.TestCase):
     def test_variants_render(self):
         for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
-                          ("bogus", "secret key sitting"), ("devtools", "Press F12")]:
+                          ("bogus", "secret key sitting"), ("devtools", "Press F12"), ("bill", "$82,314"), ("gemini", "40 minutes")]:
             with self.subTest(v=v):
                 self.assertIn(needle, app.page("n", v))
 

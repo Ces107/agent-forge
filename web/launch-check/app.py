@@ -60,8 +60,16 @@ VARIANTS = {
                  "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, nothing stored.",
                  "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
                  "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
+    "bill": {"h1": "A leaked Gemini key cost a 3-person startup $82,314 in 48 hours.",
+             "source": "Reported by the developer, via The Register, March 2026",
+             "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
+             "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
+    "gemini": {"h1": "$6,000 in 40 minutes, from one key in a site's JavaScript.",
+               "source": "Developer's report on Google's AI developer forum, April 2026",
+               "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
+               "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
-SUB = "See the result usually in under 20 seconds. Free, no signup, nothing stored."
+SUB ="See the result usually in under 20 seconds. Free, no signup, nothing stored."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
