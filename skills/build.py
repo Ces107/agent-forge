@@ -167,6 +167,10 @@ def write_zip(skill: Path, out_dir: Path) -> Path:
 
 
 PLUGIN_SKILLS = REPO_ROOT / "plugins" / "agent-forge" / "skills"
+# Skills that also ship as a standalone plugin of their own (exact copies, kept in sync like the bundle).
+STANDALONE_PLUGINS: dict[str, Path] = {
+    "launch-check": REPO_ROOT / "plugins" / "launch-check" / "skills",
+}
 
 
 def mirror_plugin(skills: Sequence[Path], check: bool) -> list[str]:
@@ -179,21 +183,25 @@ def mirror_plugin(skills: Sequence[Path], check: bool) -> list[str]:
     for skill in skills:
         if skill.parent != DEFAULT_SRC:
             continue  # only the public skills ship in the free plugin
-        target = PLUGIN_SKILLS / skill.name
         wanted = {p.relative_to(skill).as_posix(): p.read_bytes() for p in bundle_files(skill)}
-        present: dict[str, bytes] = {}
-        if target.exists():
-            present = {p.relative_to(target).as_posix(): p.read_bytes() for p in bundle_files(target)}
-        if wanted == present:
-            continue
-        if check:
-            problems.append(f"plugins/agent-forge/skills/{skill.name} is out of sync (run skills/build.py)")
-            continue
-        for rel in present.keys() - wanted.keys():
-            (target / rel).unlink()
-        for rel, content in wanted.items():
-            (target / rel).parent.mkdir(parents=True, exist_ok=True)
-            (target / rel).write_bytes(content)
+        targets = [PLUGIN_SKILLS / skill.name]
+        if skill.name in STANDALONE_PLUGINS:
+            targets.append(STANDALONE_PLUGINS[skill.name] / skill.name)
+        for target in targets:
+            present: dict[str, bytes] = {}
+            if target.exists():
+                present = {p.relative_to(target).as_posix(): p.read_bytes() for p in bundle_files(target)}
+            if wanted == present:
+                continue
+            if check:
+                rel_target = target.relative_to(REPO_ROOT).as_posix()
+                problems.append(f"{rel_target} is out of sync (run skills/build.py)")
+                continue
+            for rel in present.keys() - wanted.keys():
+                (target / rel).unlink()
+            for rel, content in wanted.items():
+                (target / rel).parent.mkdir(parents=True, exist_ok=True)
+                (target / rel).write_bytes(content)
     return problems
 
 

@@ -1,0 +1,10 @@
+{
+  "name": "launch-check",
+  "version": "1.0.0",
+  "description": "Free pre-launch check for AI-built apps and sites: one command scores a live URL on security (exposed keys, open Supabase/Firebase), phone design, Google and AI search, and speed, with a fix-this-first list.",
+  "author": { "name": "César Pereiro", "url": "https://github.com/Ces107" },
+  "homepage": "https://github.com/Ces107/agent-forge/tree/main/plugins/launch-check",
+  "repository": "https://github.com/Ces107/agent-forge",
+  "keywords": ["security", "pre-launch", "seo", "vibe-coding", "supabase", "audit", "claude-code"],
+  "license": "MIT"
+}

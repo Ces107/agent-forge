@@ -1,21 +1,50 @@
 # agent-forge
 
-**An idempotent double-entry payments ledger that stays exactly-once under concurrent retry storms,
-and the multi-agent pipeline that built it. Every correctness claim is checkable from `git log` in 90
-seconds.**
+Free agent skills and Claude Code plugins: **launch-check** (is an AI-built app safe to launch?),
+**done-gate** (no "done" until the tests pass) and four review and verification gates. Plus the
+multi-agent pipeline and the payments ledger it built.
 
 [![ci](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ces107/agent-forge/actions/workflows/ci.yml)
 
-## Skills catalogue
+## Free skills & plugins
+
+### launch-check
+
+Pre-launch report card for any live URL: security (exposed keys, open Supabase or Firebase tables,
+headers), phone design, Google and AI search, speed. Ends with a "fix this first" list.
+
+- No install: the hosted free version at https://launch-check-upz2.onrender.com
+- Claude Code plugin:
+
+  ```
+  /plugin marketplace add Ces107/agent-forge
+  /plugin install launch-check@agent-forge
+  ```
+
+- Any SKILL.md agent (Codex, Cursor, Copilot, Gemini CLI): `npx skills add Ces107/agent-forge --skill launch-check`
+- Details and what it fetches: [`plugins/launch-check`](plugins/launch-check)
+
+### done-gate
+
+A Claude Code hook: after a code edit the agent cannot end its turn until a real test command passed
+after its last change.
+
+```
+/plugin marketplace add Ces107/agent-forge
+/plugin install done-gate@agent-forge
+```
+
+Details, what it runs and how to disable it: [`plugins/done-gate`](plugins/done-gate)
+
+### All free skills (this repo, MIT)
 
 Every skill is a [SKILL.md](https://agensi.io/learn/skill-md-format) folder that runs in Claude Code,
 Codex CLI, Cursor, Copilot, Gemini CLI and other agents. The paid ones ship their own tools (scripts
 the agent runs), and each has a measured result in its `references/how-it-works.md`.
 
-### Free (this repo, MIT)
-
 ```bash
-/plugin install agent-forge --marketplace Ces107/agent-forge   # Claude Code, as a plugin
+/plugin marketplace add Ces107/agent-forge                     # Claude Code: add this marketplace once
+/plugin install agent-forge@agent-forge                         # Claude Code: all the free skills as one plugin
 npx skills add Ces107/agent-forge                               # any SKILL.md agent
 ```
 
@@ -34,44 +63,11 @@ the bundled gate scripts identical to `forge/`, and writes the zips to `dist/ski
 
 [![Blind-judged benchmark: same bugs found, far less noise, far more proof](bench/code-review/results/2026-10-20/chart.png)](bench/code-review)
 
-### Paid (Agensi)
+## The payments ledger
 
-**Agent guardrails**
-
-| Skill | What it does | Price | Get it |
-|---|---|---|---|
-| Proof-of-Done | Claude Code hooks that block "done" until the tests really ran green after the last edit, and catch deleted or weakened tests | $15 | [Agensi](https://agensi.io/skills/claude-code-hooks-block-done-until-tests-really-pass?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Command Guard | Blocks rm -rf, git reset --hard and force pushes only when they would really lose work | $9 | [Agensi](https://agensi.io/skills/claude-code-safety-guard-block-destructive-commands?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-| Phantom Dependency Guard | Checks every pip/npm/cargo install for typosquats and hallucinated package names before it runs | $15 | [Agensi](https://agensi.io/skills/fake-package-blocker-stop-ai-hallucinated-dependencies?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Context Checkpoint | Saves your rules, goal, edited files and last test result before /compact and puts them back after | $12 | [Agensi](https://agensi.io/skills/claude-code-memory-saver-rules-survive-compaction?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| API Reality Check | Checks every import, attribute and keyword argument in AI-written Python against the library you installed | $15 | [Agensi](https://agensi.io/skills/hallucinated-api-detector-catch-calls-that-don-t-exist?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-
-**Faster debugging and testing**
-
-| Skill | What it does | Price | Get it |
-|---|---|---|---|
-| Test Impact Selector | Maps your git diff to the tests it can break and prints the exact command to run | $19 | [Agensi](https://agensi.io/skills/smart-test-runner-run-only-the-tests-you-affected?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Flaky Test Bisector | Measures a flaky test's failure rate and bisects test order to name the polluting test | $12 | [Agensi](https://agensi.io/skills/flaky-test-finder-catch-the-test-that-breaks-others?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Log Distiller | Turns gigabytes of logs into a 2 KB summary with the real error on top | $12 | [Agensi](https://agensi.io/skills/log-analyzer-gigabytes-of-logs-to-the-real-error?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Query Log Lens | Ranks N+1 and duplicate queries in a SQL log and gives the ORM fix | $12 | [Agensi](https://agensi.io/skills/n-1-query-detector-find-slow-orm-queries-in-logs?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-| Perf Regression Gate | Runs old and new code alternately and reports the slowdown with a confidence interval | $15 | [Agensi](https://agensi.io/skills/performance-regression-detector-prove-it-got-slower?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-| Diff Coverage Gate | Shows which changed lines no test runs, with a CI gate | $9 | [Agensi](https://agensi.io/skills/diff-coverage-checker-tests-for-every-changed-line?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Migration Lock Linter | Flags Postgres/MySQL migrations that lock or rewrite tables and suggests the zero-downtime version | $19 | [Agensi](https://agensi.io/skills/safe-database-migration-checker-no-table-locks?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-
-**Web design and SEO**
-
-| Skill | What it does | Price | Get it |
-|---|---|---|---|
-| Site Polish Audit | Renders a page at three widths, scores the design 0-100 and hands the agent a ranked fix list with screenshots | $19 | [Agensi](https://agensi.io/skills/website-design-auditor-make-ai-built-sites-look-pro?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Landing Page Studio | Turns a one-line brief into a responsive landing page, checked in light and dark at three widths | $19 | [Agensi](https://agensi.io/skills/landing-page-designer-your-ai-builds-pro-pages?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
-| GEO + SEO Audit | Crawls a site against 67 rules for Google and AI search and writes the fix files | $19 | [Agensi](https://agensi.io/skills/geo-seo-audit-crawler-get-found-by-ai-search?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-
-**Pipeline**
-
-| Skill | What it does | Price | Get it |
-|---|---|---|---|
-| agent-forge Pipeline | The whole Spec, Architect, Tasks, Implement, Review, Verify pipeline: five sub-agent roles, gates and loop rules | $24 | [Agensi](https://agensi.io/skills/claude-code-multi-agent-pipeline-spec-to-verified-build?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
-| Ledger Correctness Kit | Property-based and concurrency test suite for any double-entry ledger, plus design rules and a checklist | $24 | [Agensi](https://agensi.io/skills/payments-ledger-test-suite-catch-double-charges-races?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+**An idempotent double-entry payments ledger that stays exactly-once under concurrent retry storms,
+and the multi-agent pipeline that built it. Every correctness claim is checkable from `git log` in 90
+seconds.**
 
 ## The 90-second proof
 
@@ -180,6 +176,45 @@ task, and a real test (`make trace`), and a verify gate halts unless tests, cove
 `mypy --strict` and `bandit` all pass. The verify gate actually halted twice on the first run (coverage
 68% < 80%, 11 ruff findings) before going green, which is the point: the gate measures substance.
 Re-run the build yourself with the `claude` CLI: `make pipeline`.
+
+## Paid skills (Agensi)
+
+**Agent guardrails**
+
+| Skill | What it does | Price | Get it |
+|---|---|---|---|
+| Proof-of-Done | Claude Code hooks that block "done" until the tests really ran green after the last edit, and catch deleted or weakened tests | $15 | [Agensi](https://agensi.io/skills/claude-code-hooks-block-done-until-tests-really-pass?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Command Guard | Blocks rm -rf, git reset --hard and force pushes only when they would really lose work | $9 | [Agensi](https://agensi.io/skills/claude-code-safety-guard-block-destructive-commands?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+| Phantom Dependency Guard | Checks every pip/npm/cargo install for typosquats and hallucinated package names before it runs | $15 | [Agensi](https://agensi.io/skills/fake-package-blocker-stop-ai-hallucinated-dependencies?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Context Checkpoint | Saves your rules, goal, edited files and last test result before /compact and puts them back after | $12 | [Agensi](https://agensi.io/skills/claude-code-memory-saver-rules-survive-compaction?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| API Reality Check | Checks every import, attribute and keyword argument in AI-written Python against the library you installed | $15 | [Agensi](https://agensi.io/skills/hallucinated-api-detector-catch-calls-that-don-t-exist?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+
+**Faster debugging and testing**
+
+| Skill | What it does | Price | Get it |
+|---|---|---|---|
+| Test Impact Selector | Maps your git diff to the tests it can break and prints the exact command to run | $19 | [Agensi](https://agensi.io/skills/smart-test-runner-run-only-the-tests-you-affected?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Flaky Test Bisector | Measures a flaky test's failure rate and bisects test order to name the polluting test | $12 | [Agensi](https://agensi.io/skills/flaky-test-finder-catch-the-test-that-breaks-others?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Log Distiller | Turns gigabytes of logs into a 2 KB summary with the real error on top | $12 | [Agensi](https://agensi.io/skills/log-analyzer-gigabytes-of-logs-to-the-real-error?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Query Log Lens | Ranks N+1 and duplicate queries in a SQL log and gives the ORM fix | $12 | [Agensi](https://agensi.io/skills/n-1-query-detector-find-slow-orm-queries-in-logs?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+| Perf Regression Gate | Runs old and new code alternately and reports the slowdown with a confidence interval | $15 | [Agensi](https://agensi.io/skills/performance-regression-detector-prove-it-got-slower?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+| Diff Coverage Gate | Shows which changed lines no test runs, with a CI gate | $9 | [Agensi](https://agensi.io/skills/diff-coverage-checker-tests-for-every-changed-line?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Migration Lock Linter | Flags Postgres/MySQL migrations that lock or rewrite tables and suggests the zero-downtime version | $19 | [Agensi](https://agensi.io/skills/safe-database-migration-checker-no-table-locks?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+
+**Web design and SEO**
+
+| Skill | What it does | Price | Get it |
+|---|---|---|---|
+| Site Polish Audit | Renders a page at three widths, scores the design 0-100 and hands the agent a ranked fix list with screenshots | $19 | [Agensi](https://agensi.io/skills/website-design-auditor-make-ai-built-sites-look-pro?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Landing Page Studio | Turns a one-line brief into a responsive landing page, checked in light and dark at three widths | $19 | [Agensi](https://agensi.io/skills/landing-page-designer-your-ai-builds-pro-pages?utm_source=github&utm_medium=readme&utm_campaign=catalogue) (in review) |
+| GEO + SEO Audit | Crawls a site against 67 rules for Google and AI search and writes the fix files | $19 | [Agensi](https://agensi.io/skills/geo-seo-audit-crawler-get-found-by-ai-search?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+
+**Pipeline**
+
+| Skill | What it does | Price | Get it |
+|---|---|---|---|
+| agent-forge Pipeline | The whole Spec, Architect, Tasks, Implement, Review, Verify pipeline: five sub-agent roles, gates and loop rules | $24 | [Agensi](https://agensi.io/skills/claude-code-multi-agent-pipeline-spec-to-verified-build?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
+| Ledger Correctness Kit | Property-based and concurrency test suite for any double-entry ledger, plus design rules and a checklist | $24 | [Agensi](https://agensi.io/skills/payments-ledger-test-suite-catch-double-charges-races?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
 
 ## Author
 
