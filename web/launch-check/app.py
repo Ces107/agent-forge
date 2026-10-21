@@ -456,10 +456,11 @@ def phone_section(report):
                 f'src="data:image/jpeg;base64,{pv["image"]}"><div><p class="lc-phn">Rendered in a real browser at 375 px '
                 f'(1 screen size). Numbered boxes = problems:</p><ul>{legend or "<li>No phone problems marked.</li>"}'
                 f'</ul></div></div></section>')
-    if pv.get("mode") == "static":
+    if pv.get("mode") in ("static", "render"):  # render without a usable screenshot counts as basic
         return (f'<section class="lc-phone lc-phs"><b>Phone layout: basic check from the page code only</b> (no browser '
-                f'render this time: {esc(pv.get("reason", ""))}).</section>')
-    return ""
+                f'render this time: {esc(pv.get("reason") or "no screenshot")}).</section>')
+    return ('<section class="lc-phone lc-phs"><b>Phone layout: not checked</b> (the check did not finish in time).'
+            '</section>')
 
 
 def result_page(report, nonce, v="dev", src=""):
