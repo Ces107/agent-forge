@@ -35,7 +35,7 @@ MAX_ASSETS = 40        # first-party scripts scanned for keys (3 MB each, 15 MB 
 SCRIPT_WORKERS = 6
 SCRIPT_PHASE = 8.0     # seconds: no new batch of scripts after this (keeps the scan near 20 s on a small CPU)
 lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-launch check, web")
-lc.AREAS = [("security", "Security"), ("phone", "Phone design (basic)"), ("search", "Found by Google & AI"),
+lc.AREAS = [("security", "Security"), ("phone", "Phone layout (1 size)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
 lc.MAX_LINKS = 6
 lc.PHONE_PLAIN.setdefault("fixed-width", "Some parts have a fixed width that is wider than a phone screen")
@@ -250,11 +250,12 @@ def run_vendored(script, args, timeout):
         return None, "could not run on this site"
 
 
-def check_phone_basic(url, timeout):
-    report, err = run_vendored("polish_audit.py", [url, "--static", "--json", "--no-shots",
-                                                    "--timeout", str(int(REQ_TIMEOUT))], timeout)
-    if report is None:
-        return None, [], f"skipped: {err}"
+BROWSER = threading.BoundedSemaphore(1)   # one Chromium at a time (512 MB instance)
+RENDER_BUDGET = 12.0                      # hard wall clock for the phone render
+RENDER_ENABLED = os.environ.get("LC_RENDER", "1") != "0"
+
+
+def _group_phone(report, prefix):
     grouped = {}
     for f in report.get("findings", []):
         sev = {"HIGH": "HIGH", "MED": "MEDIUM", "MEDIUM": "MEDIUM"}.get(f.get("severity", ""), "LOW")
@@ -267,9 +268,50 @@ def check_phone_basic(url, timeout):
         f, count = g["first"], g["count"]
         title = lc.PHONE_PLAIN.get(check, f.get("detail", ""))
         out.append(lc.finding("phone", f"phone-{check}", g["sev"], title + (f" ({count} places)" if count > 1 else ""),
-                              f"On a phone: {f.get('fix', '')}", where=f.get("selector", ""), detail=f.get("detail", "")))
+                              f"{prefix}{f.get('fix', '')}", where=f.get("selector", ""), detail=f.get("detail", "")))
     out.sort(key=lambda x: lc.SEV_ORDER[x["severity"]])
-    return int(report.get("score", 0)), out[:8], ""
+    return out[:8]
+
+
+def check_phone_render(url, timeout):
+    """Real Chromium render at 375 px (through the SSRF proxy) with an annotated screenshot; static fallback."""
+    import base64
+    import shutil
+    import tempfile
+    why_static = ""
+    if RENDER_ENABLED and BROWSER.acquire(timeout=4):
+        shots = tempfile.mkdtemp(prefix="lc-shot-")
+        try:
+            report, err = run_vendored("polish_audit.py", [url, "--viewports", "375", "--json", "--shots", shots,
+                                                            "--timeout", "9"], min(timeout, RENDER_BUDGET))
+            if report and report.get("engine") == "playwright":
+                img = None
+                path = (report.get("screenshots") or {}).get("375")
+                if path and os.path.isfile(path) and os.path.getsize(path) < 900_000:
+                    with open(path, "rb") as fh:
+                        img = base64.b64encode(fh.read()).decode()
+                legend = [{"rank": f.get("rank"), "sev": f.get("severity"),
+                           "title": lc.PHONE_PLAIN.get(f.get("check"), f.get("detail", ""))}
+                          for f in report.get("findings", []) if f.get("severity") in ("HIGH", "MED")][:8]
+                phone = {"mode": "render", "image": img, "legend": legend,
+                         "issues": sum(1 for f in report.get("findings", []) if f.get("severity") in ("HIGH", "MED"))}
+                return int(report.get("score", 0)), _group_phone(report, "On a phone: "), "", phone
+            why_static = err or "the browser could not render this page in time"
+        finally:
+            BROWSER.release()
+            shutil.rmtree(shots, ignore_errors=True)
+    else:
+        why_static = "the phone renderer was busy" if RENDER_ENABLED else "no browser on this server"
+    score, findings, why = check_phone_basic(url, timeout)
+    return score, findings, why, {"mode": "static", "reason": why_static}
+
+
+def check_phone_basic(url, timeout):
+    report, err = run_vendored("polish_audit.py", [url, "--static", "--json", "--no-shots",
+                                                    "--timeout", str(int(REQ_TIMEOUT))], timeout)
+    if report is None:
+        return None, [], f"skipped: {err}"
+    return int(report.get("score", 0)), _group_phone(report, "On a phone: "), ""
 
 
 def check_search(url, timeout):
@@ -415,7 +457,7 @@ def scan(raw_url):
             results[name] = None
 
     left = max(5.0, min(SUB_CAP, deadline - time.time()))
-    threads = [threading.Thread(target=bg, args=("phone", lambda: check_phone_basic(final, left)), daemon=True),
+    threads = [threading.Thread(target=bg, args=("phone", lambda: check_phone_render(final, left)), daemon=True),
                threading.Thread(target=bg, args=("search", lambda: check_search(final, left)), daemon=True)]
     for t in threads:
         t.start()
@@ -444,8 +486,8 @@ def scan(raw_url):
 
     for t in threads:
         t.join(timeout=max(0.5, deadline + 3 - time.time()))
-    phone = results.get("phone") or (None, [], "skipped: did not finish in time")
-    scores["phone"], phone_f, why = phone
+    phone = results.get("phone") or (None, [], "skipped: did not finish in time", {"mode": "none"})
+    scores["phone"], phone_f, why, phone_view = phone
     findings += phone_f
     if why:
         skipped["phone"] = why
@@ -477,7 +519,7 @@ def scan(raw_url):
         "counts": {s.lower(): sum(1 for f in findings if f["severity"] == s) for s in lc.SEV_ORDER},
         "fix_first": fix_first, "findings": findings,
         "facts": {"assets": assets, "basics": basics_info, "search": search_info, "requests_made": fetcher.requests},
-        "notes": notes, "skipped": skipped, "screenshot": None,
+        "notes": notes, "skipped": skipped, "screenshot": None, "phone_view": phone_view,
     }
 
 

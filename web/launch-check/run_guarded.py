@@ -30,6 +30,52 @@ def _bound_llms(module, limit=3.0):
     module.Audit.load_llms = load_llms
 
 
+def _cap_crawl_delay(module, cap=1.0):
+    """The web check makes about 10 requests in total (no deep crawl), so a robots.txt Crawl-delay of 30 s would make
+    it time out. Space requests at most 1 s apart instead: still slower than a normal visitor's browser."""
+    original = module.Robots.delay_for
+
+    def delay_for(self, token):
+        return min(original(self, token), cap)
+
+    module.Robots.delay_for = delay_for
+
+
+CHROMIUM_ARGS = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--disable-extensions",
+                 "--disable-background-networking", "--disable-sync", "--mute-audio", "--no-first-run",
+                 "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--js-flags=--max-old-space-size=192"]
+
+
+def _browser_through_guard(module):
+    """Phone render: headless Chromium whose every request goes through browser_proxy (same SSRF rules as the
+    fetcher), and one JPEG screenshot of the first 1600 px instead of a 5000 px PNG."""
+    import browser_proxy
+    _srv, port = browser_proxy.start()
+
+    def launch(pw):
+        return pw.chromium.launch(headless=True, args=CHROMIUM_ARGS, chromium_sandbox=False,
+                                  proxy={"server": f"http://127.0.0.1:{port}", "bypass": "<-loopback>"})
+
+    def annotate(pages, findings, shots_dir, slug):
+        out = {}
+        shots_dir.mkdir(parents=True, exist_ok=True)
+        for width, page in pages.items():
+            marks = []
+            for f in findings:
+                color = {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
+                for bx in f.get("boxes", {}).get(width, [])[:4]:
+                    marks.append({"box": bx, "label": "#%d" % f["rank"], "color": color})
+            page.evaluate(module.ANNOTATE_JS, marks)
+            path = shots_dir / ("%s-%d.jpg" % (slug, width))
+            page.screenshot(path=str(path), type="jpeg", quality=62,
+                            clip={"x": 0, "y": 0, "width": width, "height": 1600}, full_page=True)
+            out[width] = str(path)
+        return out
+
+    module.launch = launch
+    module.annotate = annotate
+
+
 ALLOWED = {"geo_audit.py": "geo_audit", "polish_audit.py": "polish_audit"}
 
 if __name__ == "__main__":
@@ -45,4 +91,7 @@ if __name__ == "__main__":
     if name == "geo_audit.py":  # web budget: read at most 3 sitemap files (a big sitemap index can take 10+ s)
         module.MAX_SITEMAP_FILES["network"] = 3
         _bound_llms(module)
+        _cap_crawl_delay(module)
+    if name == "polish_audit.py":
+        _browser_through_guard(module)
     sys.exit(module.main(sys.argv[2:]))

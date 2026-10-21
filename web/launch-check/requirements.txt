@@ -1,1 +1,2 @@
-# Launch Check web uses the Python standard library only (http.server, urllib). Nothing to install.
+# The web app itself uses the Python standard library. Playwright drives one headless Chromium for the phone render.
+playwright==1.49.1

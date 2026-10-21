@@ -593,8 +593,10 @@ class _Parser(html.parser.HTMLParser):
             src = a.get("src") or ""
             label = ("img.%s" % a["class"].split()[0]) if a.get("class") else (
                 "img (inline data #%d)" % (len(self.images) + 1) if src.startswith("data:") else "img[src$='%s']" % src.rsplit("/", 1)[-1][:40])
+            tiny = any((a.get(k) or "").strip().rstrip("px") in ("0", "1", "2") for k in ("width", "height"))
             self.images.append({"sel": label, "alt": "alt" in a or a.get("role") == "presentation"
-                                or a.get("aria-hidden") == "true", "dims": "width" in a and "height" in a})
+                                or a.get("aria-hidden") == "true", "dims": "width" in a and "height" in a,
+                                "src": src[:80], "tiny": tiny})
             self._content()
         elif tag == "style":
             self._in_style = True
@@ -728,7 +730,8 @@ def measure_static(target, timeout, offline):
             if any(x.strip() in ("body", "html", ":root") for x in sel.split(",")) and COLOR_TOKEN.search(b) and "gradient" not in b:
                 page_bg = b
     for im in parser.images:
-        R["images"].append({"sel": im["sel"], "box": None, "alt": im["alt"], "dims": im["dims"], "distorted": 0, "upscale": 0})
+        R["images"].append({"sel": im["sel"], "box": None, "alt": im["alt"], "dims": im["dims"], "distorted": 0, "upscale": 0,
+                            "src": im.get("src", ""), "tiny": im.get("tiny", False)})
     R["headings"] = _resolve_orphans(parser.headings)
     for sel, d in rules:
         fam = d.get("font-family")
@@ -928,6 +931,8 @@ def build_findings(measures):
     # images (DOM at widest viewport, or static parse)
     img_groups = {}
     for im in widest.get("images", []):
+        if _spacer(im):  # 1x1 / spacer / tracking images are not content (web copy: launch-check web, 2026-10-21)
+            continue
         bx = {vps[-1]: [im["box"]]} if im.get("box") else {}
         if not im["alt"]:
             g = img_groups.setdefault("alt", [])
@@ -1034,6 +1039,16 @@ def build_findings(measures):
     for i, f in enumerate(findings, 1):
         f["rank"] = i
     return findings
+
+
+SPACER = re.compile(r"(spacer|blank|pixel|1x1|/s\.gif|clear\.gif|transparent\.gif|trans\.gif)", re.I)
+
+
+def _spacer(im):
+    b = im.get("box") or []
+    if len(b) == 4 and (b[2] <= 2 or b[3] <= 2):
+        return True
+    return bool(im.get("tiny")) or bool(SPACER.search((im.get("src") or "") + " " + (im.get("sel") or "")))
 
 
 def score(findings, static=False):

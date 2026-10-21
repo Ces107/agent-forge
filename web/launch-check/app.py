@@ -211,6 +211,15 @@ border-radius:12px;padding:13px 20px}.lc-buy:hover{background:#15803d}
 .lc-offer small{display:block;color:#475569;font-size:13px;margin-top:10px}
 .lc-cats{color:#475569;font-size:14px;font-weight:600;margin:-4px 0 12px}
 .lc-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lc-phone{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px 24px;margin:0 0 14px}
+.lc-phone h2{font-size:20px;margin:0 0 12px}.lc-ph{display:grid;grid-template-columns:260px 1fr;gap:20px;align-items:start}
+.lc-ph img{width:260px;max-height:560px;object-fit:cover;object-position:top;border:8px solid #0f172a;border-radius:26px;
+display:block;background:#fff}
+.lc-ph ul{margin:0;padding-left:18px;color:#334155;font-size:14px}.lc-ph li{margin:5px 0}.lc-ph li b{color:#c2410c}
+.lc-phn{margin:0 0 8px;color:#475569;font-size:14px}.lc-phs{font-size:15px;color:#334155;padding:14px 20px}
+.lc-compare{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;color:#14532d;font-size:14px;
+margin:0 0 12px}
+@media (max-width:700px){.lc-ph{grid-template-columns:1fr}.lc-ph img{width:100%;max-width:300px;margin:0 auto}}
 .lc-runs{margin:6px 2px 0;color:#475569;font-size:12.5px;line-height:1.4}
 .lc-choice{display:block;border-radius:14px;padding:14px 16px;text-decoration:none;font-size:14px}
 .lc-choice b{display:block;font-size:17px;margin-bottom:2px}.lc-choice span{opacity:.9}
@@ -250,6 +259,8 @@ def stats_json():
 
 
 def variant(v):
+    if v == "launch":  # attribution alias
+        return "dev"
     return v if v in VARIANTS else "dev"
 
 
@@ -360,6 +371,9 @@ SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill 
     "search": ("single-geo", "Let my AI fix Google & ChatGPT visibility — $19",
                "GEO + SEO Audit: also writes your sitemap, JSON-LD and llms.txt"),
 }
+COMPARE = ("The full skill adds what this basic check (1 screen size) cannot: on news.ycombinator.com this check "
+           "marked 15 spots at phone size; the full skill marked 17 across phone, tablet and desktop (22 with minor "
+           "ones), then fixed them and re-scored.")
 RUNS = ("Runs inside Claude Code, Cursor or Codex: your AI renders the page, fixes each issue and re-scores until "
         "it passes.")
 CAT_LABEL = {"phone": "Phone layout", "search": "Google & ChatGPT", "speed": "Speed & basics",
@@ -391,6 +405,7 @@ def offer_block(report, v="dev", src=""):
     if lead == "search" and not search_ran:
         lead = None
     choices = ""
+    compare = f'<p class="lc-compare">{esc(COMPARE)}</p>' if lead == "phone" else ""
     if lead:
         name, verb, product = SINGLES[lead]
         choices += (f'<div><a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b>{esc(verb)}</b>'
@@ -401,7 +416,7 @@ def offer_block(report, v="dev", src=""):
                 f'<b>Fix everything with my AI — {KIT_PRICE}</b><span>{esc(kit_what)}</span></a>'
                 f'<p class="lc-runs">{RUNS}</p></div>')
     return (f'<section class="lc-offer"><h2>We found {n} thing{s} to fix before launch</h2>'
-            f'<div class="lc-cats">{esc(cat_line)}</div><ul>{top}</ul><div class="lc-choices">{choices}</div>'
+            f'<div class="lc-cats">{esc(cat_line)}</div><ul>{top}</ul>{compare}<div class="lc-choices">{choices}</div>'
             f'<small>Free: the list below says what is wrong. Paid: the skill does the fixing loop and writes the '
             f'files (sitemap, JSON-LD, llms.txt). One-time · refund if it does not do what it says (Agensi guarantee).'
             f'</small></section>')
@@ -425,7 +440,26 @@ def fix_prompt(report, v="dev", src=""):
     if text and len(fix) > 3:
         text += (f"\n\nWant your AI to fix the other {len(fix) - 3} too? Web + SEO kit: "
                  f"{SITE}{go('kit-fixlist', v, src)}")
-    return text
+    return text + "\n\nNot checked here: tablet and desktop renders, hover states, re-scoring after fixes."
+
+
+def phone_section(report):
+    pv = report.get("phone_view") or {}
+    if pv.get("mode") == "render" and pv.get("image"):
+        groups = {}
+        for item in pv.get("legend", []):
+            groups.setdefault(item["title"], []).append(item["rank"])
+        legend = "".join(f'<li><b>{esc(", ".join("#%d" % r for r in ranks[:5]) + (" …" if len(ranks) > 5 else ""))}'
+                         f'</b> {esc(title)}</li>' for title, ranks in groups.items())
+        return (f'<section class="lc-phone"><h2>Your site on a phone</h2><div class="lc-ph">'
+                f'<img alt="Your page at 375 px wide, problems marked with numbered boxes" '
+                f'src="data:image/jpeg;base64,{pv["image"]}"><div><p class="lc-phn">Rendered in a real browser at 375 px '
+                f'(1 screen size). Numbered boxes = problems:</p><ul>{legend or "<li>No phone problems marked.</li>"}'
+                f'</ul></div></div></section>')
+    if pv.get("mode") == "static":
+        return (f'<section class="lc-phone lc-phs"><b>Phone layout: basic check from the page code only</b> (no browser '
+                f'render this time: {esc(pv.get("reason", ""))}).</section>')
+    return ""
 
 
 def result_page(report, nonce, v="dev", src=""):
@@ -438,14 +472,14 @@ def result_page(report, nonce, v="dev", src=""):
     top_n = min(3, n)
     keys_n = len(key_items(report))
     parts = ([f"{keys_n} key item{'s' if keys_n != 1 else ''}"] if keys_n else []) + ([f"top {top_n} of {n}"] if n else [])
-    title = "Free: what is wrong" + (f" ({' + '.join(parts)})" if parts else "")
+    title = "Free basic check (1 screen size): what is wrong" + (f" ({' + '.join(parts)})" if parts else "")
     ask = (f'<div class="ask"><div class="h">{esc(title)}</div>'
            f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
            if prompt else "")
     keys = key_items(report)
     red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
     offer = offer_block(report, v, src)
-    first = secret_banner(report) + (ask + offer if red else offer + ask)
+    first = secret_banner(report) + phone_section(report) + (ask + offer if red else offer + ask)
     summary = (f'<details class="lc-other"><summary>All {n} thing{"s" if n != 1 else ""} to fix <span>score '
                f'{report["score"]}/100 · phone, Google &amp; ChatGPT, speed, security headers</span></summary>'
                f'<div class="lc-oin">')

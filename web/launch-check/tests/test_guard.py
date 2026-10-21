@@ -304,6 +304,24 @@ class ScriptScope(unittest.TestCase):
         self.assertEqual(scan.script_party("https://js.stripe.com/v3", "https://stripe.com/"), "first")
 
 
+class BrowserProxy(unittest.TestCase):
+    def test_proxy_refuses_private_and_metadata(self):
+        import browser_proxy
+        for host in ("127.0.0.1", "169.254.169.254", "localhost", "10.0.0.1", "[::1]"):
+            with self.subTest(host=host):
+                self.assertTrue(browser_proxy.selftest_refuses(host, 80))
+
+    def test_spacer_images_ignored(self):
+        sys.path.insert(0, str(HERE / "vendor"))
+        import polish_audit
+        self.assertTrue(polish_audit._spacer({"src": "https://news.ycombinator.com/s.gif"}))
+        self.assertTrue(polish_audit._spacer({"box": [0, 0, 1, 1]}))
+        self.assertFalse(polish_audit._spacer({"src": "/logo.png", "box": [0, 0, 120, 40]}))
+
+    def test_launch_alias(self):
+        self.assertEqual(app.variant("launch"), "dev")
+
+
 class Presentation(unittest.TestCase):
     def test_variants_render(self):
         for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
@@ -364,7 +382,8 @@ class Money(unittest.TestCase):
         self.assertNotIn("No CSP", text)
         self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 3)
         self.assertIn("the other 2 too", text)
-        self.assertTrue(text.rstrip().endswith("/go/kit-fixlist?v=key&src="))
+        self.assertIn("/go/kit-fixlist?v=key&src=\n", text)
+        self.assertTrue(text.endswith("Not checked here: tablet and desktop renders, hover states, re-scoring after fixes."))
 
     def test_one_count_everywhere(self):
         page = app.result_page({**REPORT, "score": 70, "verdict": "ALMOST READY", "verdict_detail": "",
@@ -372,7 +391,7 @@ class Money(unittest.TestCase):
                                           for k in ("security", "phone", "search", "speed")}}, "n")
         self.assertIn("We found 5 things", page)
         self.assertIn("top 3 of 5", page)
-        self.assertIn("Free: what is wrong", page)
+        self.assertIn("Free basic check (1 screen size)", page)
         self.assertNotRegex(page.split("<body>")[1].split("<script")[0], r"[\s(]--[a-z]{3,}")  # no CLI flags
         self.assertIn("All 5 things to fix", page)
         self.assertNotIn("Uneven spacing", page)  # LOW items are hidden
