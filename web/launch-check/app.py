@@ -26,8 +26,14 @@ from urllib import parse as urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import scan as scanner  # noqa: E402  (installs the SSRF guard)
+import fixpack  # noqa: E402
+import fixpages  # noqa: E402
 
-SITE = os.environ.get("PUBLIC_URL", "https://launch-check-upz2.onrender.com").rstrip("/")
+DEMO_ID = "demo"
+DEMO_PATH = "/demo/flowpilot/"
+PAID: dict[str, dict] = {}  # scan id -> {"url", "t"}; rebuilt from LC_PAID log lines after a restart
+
+SITE = (os.environ.get("BASE_URL") or os.environ.get("PUBLIC_URL") or "https://launch-check-upz2.onrender.com").rstrip("/")
 GITHUB = "https://github.com/Ces107/agent-forge/tree/main/skills/launch-check"
 KIT_WEB = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-ai?utm_source=launchcheck"
 KIT_GUARD = "https://www.agensi.io/bundles/claude-code-guardrails-safe-honest-agent-kit?utm_source=launchcheck"
@@ -301,7 +307,7 @@ def rebuild_stats_from_logs(days=7, max_pages=150):
     import urllib.request
     end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     found = 0
-    for text in ("LC_EVENT", "stat "):
+    for text in ("LC_EVENT", "stat ", "LC_PAID"):
         start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400))
         stop = end
         for _ in range(max_pages):
@@ -317,6 +323,16 @@ def rebuild_stats_from_logs(days=7, max_pages=150):
                 break
             with _stats_lock:
                 for log in data.get("logs", []):
+                    msg = log.get("message", "").strip()
+                    if text == "LC_PAID":
+                        if msg.startswith("LC_PAID "):
+                            try:
+                                d = json.loads(msg[8:])
+                                if time.time() - d["t"] < fixpack.PACK_DAYS * 86400:
+                                    PAID[str(d["scan"])[:40]] = {"url": str(d["url"])[:2000], "t": d["t"]}
+                            except (ValueError, KeyError, TypeError):
+                                pass
+                        continue
                     ev = parse_event(log.get("message", ""))
                     if ev and (text == "LC_EVENT") == log.get("message", "").lstrip().startswith("LC_EVENT"):
                         e, v, src = ev
@@ -517,24 +533,16 @@ def offer_block(report, v="dev", src="", phone=None):
 
 
 def fix_prompt(report, v="dev", src=""):
-    """Free list: WHAT is wrong (key items + top 3), one sentence each. Key items keep their fix (security is free)."""
-    keys = key_items(report)
-    fix = other_items(report)
-    items = keys + fix[:3]
-    if not items:
+    """Free copy-paste prompt: ONLY the top 3 problems, one sentence each."""
+    top = other_items(report)[:3]
+    if not top:
         return ""
     lines = [f"My site {report['final_url']} was checked before launch. Please fix these problems, in order, and "
              "tell me what you changed:"]
-    for i, f in enumerate(items, 1):
-        where = f" (on {f['where']})" if f["where"] and f["area"] != "phone" and f not in keys else ""
-        sentence = f["title"] if f in keys else scanner.lc.short(f["title"], 140)
-        extra = f" {f['fix']}" if f in keys else ""
-        lines.append(f"{i}. {sentence}{where}.{extra}")
-    text = "\n".join(lines)
-    if text and len(fix) > 3:
-        text += (f"\n\nWant your AI to fix the other {len(fix) - 3} too? Web + SEO kit: "
-                 f"{SITE}{go('kit-fixlist', v, src)}")
-    return text + "\n\nNot checked here: tablet and desktop renders, hover states, re-scoring after fixes."
+    for i, f in enumerate(top, 1):
+        where = f" (on {f['where']})" if f["where"] and f["area"] != "phone" else ""
+        lines.append(f"{i}. {scanner.lc.short(f['title'], 140)}{where}.")
+    return "\n".join(lines)
 
 
 def phone_section(report):
@@ -611,32 +619,27 @@ def phone_slot(report, job_id, state, stats=None):
             f'with the top problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">'
             f'Rendered in a real browser at 375 px. Numbered boxes match the list below:</p><ul>{legend}</ul>'
             f'{more_html}'
-            f'<p class="lc-phn">The $19 skill gives your agent every box, plus tablet and desktop, and re-scores after '
-            f'each fix.</p></div></div></section>')
+            f'<p class="lc-phn">The Fix Pack has every box, plus tablet and desktop renders.</p></div></div></section>')
 
 
-def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, phone_stats=None):
+def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, phone_stats=None, before=None):
     fix = other_items(report)
     n = len(fix)
-    # the collapsed section shows exactly the things-to-fix list: one count everywhere
-    doc = scanner.render({**report, "findings": fix, "fix_first": fix})
-    doc = re.sub(r'<div class="ask">.*?</pre></div>', "", doc, count=1, flags=re.S)
+    doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
-    top_n = min(3, n)
-    keys_n = len(key_items(report))
-    parts = ([f"{keys_n} key item{'s' if keys_n != 1 else ''}"] if keys_n else []) + ([f"top {top_n} of {n}"] if n else [])
-    title = "Free basic check (1 screen size): what is wrong" + (f" ({' + '.join(parts)})" if parts else "")
-    ask = (f'<div class="ask"><div class="h">{esc(title)}</div>'
-           f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
-           if prompt else "")
-    keys = key_items(report)
-    red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
-    offer = offer_block(report, v, src, phone_counts(phone_stats) if phone_state == "done" else None)
+    top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}</li>" for f in fix[:3])
+    free = (f'<section class="lc-top3"><h2>Top {min(3, n)} problems{f" of {n}" if n > 3 else ""}</h2><ol>{top3}</ol>'
+            f'<div class="ask"><div class="h">Free: paste this to your AI</div><button id="lc-copy" type="button">Copy for '
+            f'your AI</button><pre id="p">{esc(prompt)}</pre></div><p class="lc-nc">Not checked in the free scan: tablet '
+            f'and desktop renders, hover states, re-scoring after fixes.</p></section>' if n else
+            '<section class="lc-top3"><h2>No problems worth fixing before launch</h2></section>')
+    counts = phone_counts(phone_stats) if phone_state == "done" else {}
+    preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False)
     slot = phone_slot(report, job_id, phone_state, phone_stats)
-    first = secret_banner(report) + (slot or phone_section(report)) + (ask + offer if red else offer + ask)
-    summary = (f'<details class="lc-other"><summary>All {n} thing{"s" if n != 1 else ""} to fix <span>score '
-               f'{report["score"]}/100 · phone, Google &amp; ChatGPT, speed, security headers</span></summary>'
-               f'<div class="lc-oin">')
+    then = ""
+    if before is not None:
+        then = (f'<section class="lc-then">Before: <b>{before}/100</b> → now: <b>{report["score"]}/100</b></section>')
+    first = then + secret_banner(report) + (slot or phone_section(report)) + free + preview
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
 function ok(){{b.textContent='Copied — paste it to your AI';}}
@@ -651,26 +654,34 @@ if(d.mode==='fallback'){{var fb=document.getElementById('lc-fb');fb.querySelecto
 if(d.mode==='clean'){{document.getElementById('lc-clean').hidden=false;}}
 document.querySelectorAll('#lc-ps li[data-l]').forEach(function(li){{if(m.indexOf(li.getAttribute('data-l'))<0)li.hidden=true;}});
 var mo=document.getElementById('lc-more');if(mo&&d.more>0){{mo.textContent='+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page';mo.hidden=false;}}
-var b=document.getElementById('lc-b1');if(b&&b.getAttribute('data-lead')==='phone'&&d.total>0){{b.textContent='Let my AI fix these '+d.total+' spots \u2014 $19';}}
+var tl=document.querySelector('.fp-tl');if(tl&&d.more>0){{tl.textContent='Phone · tablet · desktop renders, '+d.more+' more spot'+(d.more===1?'':'s')+' marked';}}
 }};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
 else if(d.state==='rendering'&&n<75){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
 setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
-    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + '</style><meta name="robots" '
-                      'content="noindex"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
-    doc = doc.replace('<section class="hero">', first + summary + '<section class="hero">', 1)
-    doc = doc.replace("<h2>Fix this first</h2>", f"<h2>All {n} things to fix, most important first</h2>", 1)
-    doc = doc.replace("<h2>All findings</h2>", "<h2>By category</h2>", 1)
-    doc = doc.replace('<div class="foot">', '</div></details><div class="foot">', 1)
+    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + fixpack.FP_CSS + RESULT_CSS
+                      + '</style><meta name="robots" content="noindex"><link rel="icon" href="/favicon.svg" '
+                      'type="image/svg+xml"></head><body>' + top, 1)
+    doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
-                      "A good score is not a security audit. Web version: phone findings come from the page code (1 screen size); the phone screenshot is a real "
-                      "browser render of the top 3 only. No open-database test, minor (low) items hidden. Nothing was written to disk: this "
-                      "report stays in memory for 10 minutes so the page can load, then it is dropped."
+                      "A good score is not a security audit. Free scan: phone findings come from the page code (1 screen "
+                      "size); the phone screenshot is a real browser render. Nothing was written to disk: this report "
+                      "stays in memory for 10 minutes so the page can load, then it is dropped."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
+    agensi = (f'<p class="fp-agensi">Use Claude Code or Cursor? <a href="{esc(go("kit", v, src))}" rel="noopener">The '
+              f'skills are on Agensi</a>.</p>')
     if doc.endswith(tail):
-        doc = doc[: -len(tail)] + "</div>" + script + "</body></html>"
+        doc = doc[: -len(tail)] + "</div>" + agensi + script + "</body></html>"
     return doc
+
+
+RESULT_CSS = """
+.lc-top3{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px 24px;margin:0 0 14px}
+.lc-top3 h2{font-size:20px;margin:0 0 8px}.lc-top3 ol{margin:0 0 12px;padding-left:22px;font-size:16px;font-weight:600}
+.lc-top3 li{margin:4px 0}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
+.lc-then{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 16px;margin:0 0 14px;font-size:16px}
+"""
 
 
 def client_ip(handler):
@@ -698,11 +709,11 @@ def rate_ok(ip, now=None):
 
 
 def _prune(now):
-    for k in [k for k, j in JOBS.items() if now - j["t"] > JOB_TTL]:
+    for k in [k for k, j in JOBS.items() if now - j["t"] > JOB_TTL and j.get("keep_until", 0) < now]:
         JOBS.pop(k, None)
 
 
-def start_job(url, v, src=""):
+def start_job(url, v, src="", job_id=None, keep=False):
     """Register a scan and run it in the background. Returns the job id, or None when too many are pending."""
     now = time.time()
     host = (urlparse.urlsplit(url if "://" in url else "https://" + url).hostname or "your site")[:80]
@@ -710,9 +721,9 @@ def start_job(url, v, src=""):
         _prune(now)
         if len(JOBS) >= JOB_MAX:
             return None
-        job_id = secrets.token_urlsafe(18)
+        job_id = job_id or secrets.token_urlsafe(18)
         JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host,
-                        "id": job_id}
+                        "id": job_id, "keep_until": now + fixpack.PACK_DAYS * 86400 if keep else 0}
 
     def render_later(job, report):
         """After the result is ready: render the page at 375 px with the free top-3 phone problems boxed."""
@@ -767,6 +778,40 @@ def job_state(job):
     return job["state"]
 
 
+def mark_paid(scan_id, url):
+    PAID[scan_id] = {"url": url, "t": time.time()}
+    job = JOBS.get(scan_id)
+    if job:
+        job["keep_until"] = time.time() + fixpack.PACK_DAYS * 86400
+    sys.stderr.write("LC_PAID " + json.dumps({"scan": scan_id, "url": url, "t": int(time.time())},
+                                             separators=(",", ":")) + "\n")
+
+
+def ensure_pack(job):
+    """Start building the Fix Pack for a finished scan (once)."""
+    if job.get("pack") or job.get("state") != "done":
+        return
+    job["pack"] = {"state": "building"}
+
+    def work():
+        try:
+            rescan = f"{SITE}/fix/{job['id']}"
+            job["pack"] = fixpack.build_pack(job["report"], rescan)
+        except Exception as exc:  # never leave the buyer on a spinner
+            sys.stderr.write(f"pack failed: {type(exc).__name__}\n")
+            job["pack"] = {"state": "failed"}
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def demo_job():
+    job = JOBS.get(DEMO_ID)
+    if job is None or job.get("state") == "error":
+        start_job(SITE + DEMO_PATH, "demo", job_id=DEMO_ID, keep=True)
+        job = JOBS.get(DEMO_ID)
+    return job
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "launch-check"
     sys_version = ""
@@ -774,10 +819,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):  # path only: never the query string, never the body
         path = urlparse.urlsplit(self.path).path
-        path = re.sub(r"^/r/[^/]+", "/r/<id>", path)[:80]
+        path = re.sub(r"^/(r|fix|rescan|buy)/[^/]+", lambda m: f"/{m.group(1)}/<id>", path)[:80]
         sys.stderr.write(f"{time.strftime('%H:%M:%S')} {self.command} {path} {getattr(self, '_status', '-')}\n")
 
-    def send(self, status, body, ctype="text/html; charset=utf-8", nonce=None, cache="no-store", extra=None):
+    def send(self, status, body, ctype="text/html; charset=utf-8", nonce=None, cache="no-store", extra=None, csp=None):
         data = body.encode("utf-8") if isinstance(body, str) else body
         self._status = status
         self.send_response(status)
@@ -786,9 +831,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", cache)
         self.send_header("Connection", "close")
         script = f"'nonce-{nonce}'" if nonce else "'none'"
-        self.send_header("Content-Security-Policy",
+        self.send_header("Content-Security-Policy", csp or (
                          f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; "
-                         "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+                         "connect-src 'self'; form-action 'self' https://*.polar.sh; base-uri 'none'; "
+                         "frame-ancestors 'none'"))
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -840,9 +886,12 @@ class Handler(BaseHTTPRequestHandler):
                 sys.stderr.write("ISOLATION: report/job mismatch refused\n")
                 return self.send(500, page(n, job["v"], error="Something went wrong. Check your app again."), nonce=n)
             if state == "done":
+                before = (urlparse.parse_qs(parts.query).get("before") or [""])[0]
                 return self.send(200, result_page(job["report"], n, job["v"], job.get("src", ""), m.group(1),
                                                   (job.get("phone") or {}).get("state"),
-                                                  (job.get("phone") or {}).get("stats")), nonce=n)
+                                                  (job.get("phone") or {}).get("stats"),
+                                                  int(before) if before.isdigit() and int(before) <= 100 else None),
+                                 nonce=n)
             if state == "error":
                 return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", ""),
                                            src=job.get("src", "")), nonce=n)
@@ -870,6 +919,14 @@ class Handler(BaseHTTPRequestHandler):
                                   "Cursor.\n", "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/check":
             return self.send(303, "", extra={"Location": "/"})
+        if path == DEMO_PATH:
+            demo = Path(__file__).resolve().parent / "static" / "demo-flowpilot.html"
+            return self.send(200, demo.read_bytes(), extra={"X-Robots-Tag": "noindex"}, csp=(
+                "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'unsafe-inline'; "
+                "frame-ancestors 'none'"))
+        fx = re.fullmatch(r"/fix/([A-Za-z0-9_-]{4,40})(/status|/render-(375|768|1440)\.jpg|/(fix-pack-[A-Za-z0-9.-]+\.zip))?", path)
+        if fx:
+            return self.fix_route(fx, urlparse.parse_qs(parts.query))
         go = re.fullmatch(r"/go/([a-z-]{1,20})", path)
         if go and go.group(1) in GO:
             q = urlparse.parse_qs(parts.query)
@@ -883,8 +940,124 @@ class Handler(BaseHTTPRequestHandler):
         n = secrets.token_urlsafe(16)
         return self.send(404, page(n, error="Page not found."), nonce=n)
 
+    def fix_route(self, fx, q):
+        scan_id, sub = fx.group(1), fx.group(2) or ""
+        demo = scan_id == DEMO_ID
+        token = (q.get("token") or [""])[0]
+        n = secrets.token_urlsafe(16)
+        if not demo and not fixpack.token_ok(scan_id, token):
+            checkout = (q.get("checkout_id") or [""])[0]
+            job = JOBS.get(scan_id)
+            if fixpack.CHECKOUT_ON and checkout and job and job.get("state") == "done":
+                try:
+                    paid = fixpack.polar_checkout_paid(checkout, scan_id)
+                except Exception:  # Polar unreachable: let the buyer retry
+                    paid = False
+                if paid:
+                    mark_paid(scan_id, job["url"])
+                    return self.send(303, "", extra={"Location": f"/fix/{scan_id}?token={fixpack.token_for(scan_id)}"})
+            if sub == "/status":
+                return self.send(200, json.dumps({"state": "locked"}), "application/json")
+            return self.send(403, fixpages.locked_page(n), nonce=n)
+        job = demo_job() if demo else JOBS.get(scan_id)
+        if job is None and not demo:
+            info = PAID.get(scan_id)
+            if not info:
+                return self.send(404, fixpages.locked_page(n, "This Fix Pack has expired"), nonce=n)
+            start_job(info["url"], "dev", job_id=scan_id, keep=True)  # regenerate after a restart (~30 s)
+            job = JOBS.get(scan_id)
+        state = job_state(job)
+        pack = job.get("pack") or {}
+        if sub == "/status":
+            if state == "error":
+                return self.send(200, json.dumps({"state": "failed"}), "application/json")
+            if state == "done":
+                ensure_pack(job)
+                return self.send(200, json.dumps({"state": (job.get("pack") or {}).get("state", "building")}),
+                                 "application/json")
+            return self.send(200, json.dumps({"state": "scanning"}), "application/json")
+        if sub.startswith("/render-"):
+            jpg = (pack.get("shots") or {}).get(int(fx.group(3)))
+            if not jpg:
+                return self.send(404, "not found", "text/plain; charset=utf-8")
+            return self.send(200, jpg, "image/jpeg", cache="private, max-age=3600")
+        if sub.startswith("/fix-pack-"):
+            if pack.get("state") != "done" or fx.group(4) != pack.get("zip_name"):
+                return self.send(404, "not found", "text/plain; charset=utf-8")
+            count("pack_download", job.get("v", "dev"), job.get("src", ""))
+            return self.send(200, pack["zip"], "application/zip", cache="private, no-store", extra={
+                "Content-Disposition": f'attachment; filename="{pack["zip_name"]}"'})
+        if state == "error":
+            return self.send(422, fixpages.locked_page(n, job.get("error") or "The scan for this pack failed"), nonce=n)
+        if state != "done":
+            return self.send(200, fixpages.building_page(scan_id, token, n, "Scanning the site for your Fix Pack…"),
+                             nonce=n)
+        ensure_pack(job)
+        pack = job.get("pack") or {}
+        if pack.get("state") == "done":
+            if demo:
+                count("demo_pack_view", "dev", "")
+            return self.send(200, fixpages.pack_page(job["report"], pack, scan_id, token, n, demo), nonce=n)
+        if pack.get("state") == "failed":
+            job.pop("pack", None)
+            return self.send(500, fixpages.locked_page(n, "The pack could not be built. Reload to try again."), nonce=n)
+        return self.send(200, fixpages.building_page(scan_id, token, n, "Building your Fix Pack…"), nonce=n)
+
     def do_POST(self):
-        path = urlparse.urlsplit(self.path).path
+        parts = urlparse.urlsplit(self.path)
+        path = parts.path
+        buy = re.fullmatch(r"/buy/([A-Za-z0-9_-]{20,40})", path)
+        if buy:
+            if not fixpack.CHECKOUT_ON:
+                return self.send(303, "", extra={"Location": "/fix/demo"})
+            job = JOBS.get(buy.group(1))
+            if not job or job.get("state") != "done":
+                n = secrets.token_urlsafe(16)
+                return self.send(404, page(n, error="This result has expired. Check your site again."), nonce=n)
+            try:
+                url = fixpack.polar_checkout_url(buy.group(1), SITE)
+            except Exception:  # Polar unreachable
+                n = secrets.token_urlsafe(16)
+                return self.send(502, page(n, error="Checkout is not reachable right now. Try again in a minute."),
+                                 nonce=n)
+            count("checkout_started", job.get("v", "dev"), job.get("src", ""))
+            return self.send(303, "", extra={"Location": url})
+        rs = re.fullmatch(r"/rescan/([A-Za-z0-9_-]{4,40})", path)
+        if rs:
+            sid = rs.group(1)
+            token = (urlparse.parse_qs(parts.query).get("token") or [""])[0]
+            job = JOBS.get(sid)
+            if sid != DEMO_ID and not fixpack.token_ok(sid, token):
+                n = secrets.token_urlsafe(16)
+                return self.send(403, fixpages.locked_page(n), nonce=n)
+            url = (job or {}).get("url") or (PAID.get(sid) or {}).get("url")
+            if not url:
+                n = secrets.token_urlsafe(16)
+                return self.send(404, fixpages.locked_page(n, "This Fix Pack has expired"), nonce=n)
+            before = ((job or {}).get("report") or {}).get("score")
+            new = start_job(url, (job or {}).get("v", "dev"), (job or {}).get("src", ""))
+            if not new:
+                n = secrets.token_urlsafe(16)
+                return self.send(503, page(n, error="Too many checks right now. Try again in a minute."), nonce=n)
+            count("rescan", (job or {}).get("v", "dev"), "")
+            return self.send(303, "", extra={"Location": f"/r/{new}" + (f"?before={before}" if before is not None else "")})
+        if path == "/webhook/polar":
+            length = min(int(self.headers.get("Content-Length") or 0), 200_000)
+            body = self.rfile.read(length) if length > 0 else b""
+            if not fixpack.polar_webhook_ok(self.headers, body):
+                return self.send(403, "bad signature", "text/plain; charset=utf-8")
+            try:
+                event = json.loads(body)
+            except ValueError:
+                return self.send(400, "bad json", "text/plain; charset=utf-8")
+            if event.get("type") == "order.paid":
+                data = event.get("data") or {}
+                sid = ((data.get("metadata") or {}).get("scan_id")
+                       or ((data.get("checkout") or {}).get("metadata") or {}).get("scan_id") or "")
+                job = JOBS.get(sid)
+                if sid and job:
+                    mark_paid(sid, job["url"])
+            return self.send(202, "ok", "text/plain; charset=utf-8")
         if path != "/check":
             return self.send(404, "not found", "text/plain; charset=utf-8")
         try:

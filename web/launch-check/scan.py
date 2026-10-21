@@ -384,9 +384,38 @@ def check_phone_basic(url, timeout):
     return int(report.get("score", 0)), _group_phone(report, "On a phone: "), ""
 
 
+FIX_FILE_CAP = 300_000
+
+
+def read_fix_files(folder):
+    """The files the vendored GEO + SEO engine wrote for this site (--emit-fixes): {relative name: text}."""
+    files = {}
+    for root, _dirs, names in os.walk(folder):
+        for name in sorted(names):
+            if name == "README.md":
+                continue
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, folder).replace(os.sep, "/")
+            try:
+                if os.path.getsize(full) <= FIX_FILE_CAP:
+                    with open(full, encoding="utf-8", errors="replace") as fh:
+                        files[rel] = fh.read()
+            except OSError:
+                continue
+    return files
+
+
 def check_search(url, timeout):
-    report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.1",
-                                                "--link-budget", "3", "--timeout", str(int(REQ_TIMEOUT))], timeout)
+    import shutil
+    import tempfile
+    emit = tempfile.mkdtemp(prefix="lc-fix-")
+    try:
+        report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.1",
+                                                    "--link-budget", "3", "--timeout", str(int(REQ_TIMEOUT)),
+                                                    "--emit-fixes", emit, "--force"], timeout)
+        fix_files = read_fix_files(emit) if report is not None else {}
+    finally:
+        shutil.rmtree(emit, ignore_errors=True)
     if report is None:
         return None, [], f"skipped: {err}", {}
     out = []
@@ -403,7 +432,14 @@ def check_search(url, timeout):
         where = (f.get("urls") or [""])[0]
         out.append(lc.finding("search", f"search-{f.get('rule')}", sev, title, f.get("fix", ""), where=where,
                               detail=f"{f.get('count')}/{f.get('checked')} {f.get('title', '')}"))
-    return int(report.get("score", 0)), out[:12], "", {"pages": report.get("pages_crawled")}
+    summary = ""
+    llms = fix_files.get("llms.txt", "")
+    m = re.search(r"^> (.+)$", llms, re.M)
+    if m:
+        summary = m.group(1).strip()[:300]
+    return int(report.get("score", 0)), out[:12], "", {"pages": report.get("pages_crawled"), "fix_files": fix_files,
+                                                       "summary": summary,
+                                                       "sitemap_note": (report.get("sitemap_emit") or {}).get("note", "")}
 
 
 def backend_findings(backend):
@@ -592,7 +628,13 @@ def scan(raw_url):
                       "note": area_note(k, fix_first, skipped.get(k))} for k, label in lc.AREAS},
         "counts": {s.lower(): sum(1 for f in findings if f["severity"] == s) for s in lc.SEV_ORDER},
         "fix_first": fix_first, "findings": findings,
-        "facts": {"assets": assets, "basics": basics_info, "search": search_info, "requests_made": fetcher.requests},
+        "facts": {"assets": assets, "basics": basics_info, "requests_made": fetcher.requests,
+                  "search": {k: v for k, v in search_info.items() if k != "fix_files"}},
+        "fix_files": search_info.get("fix_files", {}),
+        "page_meta": {"title": lc.clean(parser.title.strip(), 200),
+                      "description": lc.clean(parser.meta.get("description", "").strip(), 400),
+                      "og": {k: lc.clean(v, 400) for k, v in parser.meta.items() if k.startswith(("og:", "twitter:"))},
+                      "lang": lc.clean(parser.lang or "", 12), "summary": search_info.get("summary", "")},
         "notes": notes, "skipped": skipped, "screenshot": None, "phone_view": phone_view,
     }
 

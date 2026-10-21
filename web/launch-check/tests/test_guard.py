@@ -227,7 +227,7 @@ class GoogleKey(unittest.TestCase):
         self.assertLessEqual(report["score"], 39)
         page = app.result_page(report, "n")
         self.assertIn("Yes: 1 secret key showing", page)
-        self.assertIn("things to fix", page)
+        self.assertIn("Your Fix Pack for", page)
         self.assertNotIn(FAKE_GOOGLE_KEY, page)
 
 
@@ -419,6 +419,71 @@ def json_state(text):
         return None
 
 
+class FixPack(unittest.TestCase):
+    @staticmethod
+    def rep():
+        return {**REPORT, "score": 64, "final_url": "https://a.com/",
+           "fix_files": {"llms.txt": "# a\n\n> Makes things\n", "robots.txt": "User-agent: *\nAllow: /\n",
+                         "jsonld/home.html": '<script type="application/ld+json">{"@type":"Organization"}</script>',
+                         "jsonld/manifest.json": '[{"url":"https://a.com/","file":"jsonld/home.html","types":["Organization"]}]'},
+           "page_meta": {"title": "A <b>", "description": "", "og": {}, "summary": "Makes things"}}
+
+    def test_files_and_zip(self):
+        import fixpack
+        import io as _io
+        import zipfile as _zip
+        orig = fixpack.render_sizes
+        fixpack.render_sizes = lambda url, budget=150.0: ({375: b"\xff\xd8jpg"}, None)
+        try:
+            pack = fixpack.build_pack(self.rep(), "https://x/fix/1")
+        finally:
+            fixpack.render_sizes = orig
+        names = _zip.ZipFile(_io.BytesIO(pack["zip"])).namelist()
+        for want in ("README.txt", "FIX-PROMPT.txt", "FINDINGS.txt", "llms.txt", "robots.txt", "json-ld.html",
+                     "meta-tags.html", "screenshots/phone-375.jpg"):
+            self.assertIn(want, names)
+        meta = pack["files"]["meta-tags.html"]
+        self.assertIn("<title>A &lt;b&gt;</title>", meta)              # escaped
+        self.assertIn('content="Makes things"', meta)                  # description drafted from the site summary
+        self.assertEqual(pack["zip_name"], "fix-pack-a.com.zip")
+
+    def test_tokens_and_webhook(self):
+        import fixpack
+        import base64 as _b64
+        import hashlib as _h
+        import hmac as _hm
+        t = fixpack.token_for("abc")
+        self.assertTrue(fixpack.token_ok("abc", t))
+        self.assertFalse(fixpack.token_ok("abd", t))
+        fixpack.POLAR_WEBHOOK_SECRET = "s3cret"
+        body, wid, ts = b'{"type":"order.paid"}', "msg_1", str(int(__import__("time").time()))
+        sig = _b64.b64encode(_hm.new(b"s3cret", f"{wid}.{ts}.".encode() + body, _h.sha256).digest()).decode()
+        self.assertTrue(fixpack.polar_webhook_ok({"webhook-id": wid, "webhook-timestamp": ts,
+                                                  "webhook-signature": "v1," + sig}, body))
+        self.assertFalse(fixpack.polar_webhook_ok({"webhook-id": wid, "webhook-timestamp": ts,
+                                                   "webhook-signature": "v1,AAAA"}, body))
+        fixpack.POLAR_WEBHOOK_SECRET = ""
+
+    def test_paid_page_locked_without_token(self):
+        web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", web.server_port))
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", web.server_port, timeout=10)
+            c.request("GET", "/fix/" + "Z" * 24)
+            r = c.getresponse()
+            self.assertEqual(r.status, 403)
+            self.assertIn("This Fix Pack is locked", r.read().decode())
+            c = http.client.HTTPConnection("127.0.0.1", web.server_port, timeout=10)
+            c.request("GET", "/demo/flowpilot/")
+            r = c.getresponse()
+            self.assertEqual(r.status, 200)
+            self.assertIn("FlowPilot", r.read().decode())
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", web.server_port))
+            web.shutdown()
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
@@ -513,25 +578,31 @@ class Money(unittest.TestCase):
         self.assertIn("Nothing to fix in design or search", app.offer_block(clean))
         self.assertNotIn("/go/kit?", app.offer_block(clean))
 
-    def test_fix_list_capped_with_kit_line(self):
+    def test_free_prompt_is_only_the_top_3(self):
         text = app.fix_prompt(REPORT, "key", "")
         self.assertIn("Some text is hard to read", text)   # phone / Google first, headers last
         self.assertNotIn("No CSP", text)
         self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 3)
-        self.assertIn("the other 2 too", text)
-        self.assertIn("/go/kit-fixlist?v=key&src=\n", text)
-        self.assertTrue(text.endswith("Not checked here: tablet and desktop renders, hover states, re-scoring after fixes."))
+        self.assertNotIn("agensi", text.lower())
+        self.assertNotIn("kit", text.lower())
 
-    def test_one_count_everywhere(self):
-        page = app.result_page({**REPORT, "score": 70, "verdict": "ALMOST READY", "verdict_detail": "",
-                                "areas": {k: {"label": k, "score": 70, "grade": "amber", "note": ""}
-                                          for k in ("security", "phone", "search", "speed")}}, "n")
-        self.assertIn("We found 5 things", page)
-        self.assertIn("top 3 of 5", page)
-        self.assertIn("Free basic check (1 screen size)", page)
+    def test_free_page_is_verdict_top3_and_locked_pack(self):
+        rep = {**REPORT, "score": 70, "verdict": "ALMOST READY", "verdict_detail": "",
+               "fix_files": {"llms.txt": "# a.com\n\n> Makes things\n\n## Main\n- [Home](https://a.com/)\n- [Pricing](x)\n"},
+               "page_meta": {"title": "A", "description": "", "og": {}, "summary": "Makes things"},
+               "areas": {k: {"label": k, "score": 70, "grade": "amber", "note": ""}
+                         for k in ("security", "phone", "search", "speed")}}
+        page = app.result_page(rep, "n", job_id="J" * 24)
+        self.assertIn("Top 3 problems of 5", page)
+        self.assertIn("Your Fix Pack for a.com", page)
+        self.assertIn("# a.com", page)                       # first real lines of the generated llms.txt
+        self.assertNotIn("[Pricing](x)", page)               # the rest is NOT in the HTML (blurred placeholder)
+        self.assertIn("See a sample Fix Pack", page)         # DEMO mode: PAY_PROVIDER unset
+        self.assertNotIn("$19", page)
+        self.assertNotIn("$39", page)
+        self.assertNotIn("free skill", page.lower())
         self.assertNotRegex(page.split("<body>")[1].split("<script")[0], r"[\s(]--[a-z]{3,}")  # no CLI flags
-        self.assertIn("All 5 things to fix", page)
-        self.assertNotIn("Uneven spacing", page)  # LOW items are hidden
+        self.assertNotIn("Uneven spacing", page)  # nothing beyond the top 3 in full
 
     def test_high_finding_caps_grade(self):
         f = [_f("phone", "HIGH", "Page wider than the phone", "phone-overflow")]

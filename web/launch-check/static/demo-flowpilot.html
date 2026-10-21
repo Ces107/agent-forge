@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowPilot - AI workflows</title>
+<style>
+body{margin:0;font-family:Inter,Arial,sans-serif;color:#333;background:#fff}
+nav{display:flex;justify-content:space-between;align-items:center;padding:13px 22px;border-bottom:1px solid #eee}
+nav .logo{font-family:Poppins,Arial,sans-serif;font-weight:800;font-size:22px;color:#6d28d9}
+nav a{color:#343434;font-size:13px;margin-left:18px;text-decoration:none}
+.hero{background:linear-gradient(135deg,#7c3aed,#c4b5fd);padding:70px 27px;text-align:center;position:relative}
+.hero h1{font-family:Montserrat,Arial,sans-serif;font-size:56px;color:#fff;margin:0 0 18px;line-height:.9}
+.hero .badge{position:absolute;left:50%;top:78px;background:#fde047;color:#2d2d2d;font-size:11px;padding:3px 7px;border-radius:9px}
+.hero p{color:#ede9fe;font-size:19px;margin:0 auto 26px}
+.cta{display:inline-block;height:32px;line-height:32px;width:150px;overflow:hidden;white-space:nowrap;background:#6b21a8;
+  color:#d8b4fe;border-radius:6px;font-size:15px}
+.features{padding:50px 22px}
+.features h4{font-size:28px;margin:0 0 13px;font-family:Georgia,serif}
+.features p.lead{font-size:17px;line-height:1.5;color:#555}
+.grid{display:flex;gap:22px}
+.card{border:1px solid #e5e5e5;border-radius:10px;padding:18px 21px}
+.card h5{font-size:19px;margin:9px 0}
+.card p{color:#9ca3af;font-size:15px}
+.card img{width:100%}
+.pricing{padding:45px 22px;background:#fafafa}
+.plans{display:grid;grid-template-columns:repeat(3,340px);gap:30px}
+.plan{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:27px}
+.plan .price{font-size:42px;color:#7c3aed;font-weight:700}
+.quote{padding:45px 22px;display:flex;gap:18px;align-items:center}
+.quote img{border-radius:50%}
+.quote p{color:#a3a3a3;font-style:italic;font-size:17px}
+footer{padding:22px;background:#111;color:#666;font-size:12px}
+footer a{color:#777;font-size:12px}
+.social a{display:inline-block;width:20px;height:20px;margin-right:5px;background:#333;border-radius:4px}
+.banner{background:#6d28d9;color:#fff;padding:40px 16px;text-align:center;font-size:14px}
+</style></head><body>
+<nav><span class="logo">FlowPilot</span><div><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#login">Log in</a></div></nav>
+<section class="hero">
+  <span class="badge">NEW: GPT agents</span>
+  <h1>Automate your workflows with AI</h1>
+  <p>Connect your tools, describe the job, and let FlowPilot do the busywork.</p>
+  <a class="cta" href="#signup">Start your free trial today</a>
+</section>
+<section class="features" id="features">
+  <h4>Everything you need to ship faster</h4>
+  <p class="lead">FlowPilot connects to the tools your team already uses and turns repetitive work into reliable automations that run on their own, with retries, alerts and an audit trail for every single step, so nothing slips through the cracks again.</p>
+  <div class="grid">
+    <div class="card"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='400'%3E%3Crect width='640' height='400' fill='%23ede9fe'/%3E%3Ccircle cx='320' cy='200' r='90' fill='%238b5cf6'/%3E%3C/svg%3E"><h5>Visual builder</h5><p>Drag, drop and connect steps without code.</p></div>
+    <div class="card"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='400'%3E%3Crect width='640' height='400' fill='%23ede9fe'/%3E%3Ccircle cx='320' cy='200' r='90' fill='%238b5cf6'/%3E%3C/svg%3E"><h5>AI steps</h5><p>Summarise, classify and draft with one block.</p></div>
+    <div class="card"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='400'%3E%3Crect width='640' height='400' fill='%23ede9fe'/%3E%3Ccircle cx='320' cy='200' r='90' fill='%238b5cf6'/%3E%3C/svg%3E"><h5>Audit trail</h5><p>Every run is logged and replayable.</p></div>
+  </div>
+  <h3>Integrations</h3>
+</section>
+<section class="pricing" id="pricing">
+  <h2>Pricing</h2>
+  <div class="plans">
+    <div class="plan"><h5>Starter</h5><div class="price">$0</div><p>For side projects.</p></div>
+    <div class="plan"><h5>Team</h5><div class="price">$29</div><p>For growing teams.</p></div>
+    <div class="plan"><h5>Business</h5><div class="price">$99</div><p>SSO, audit log, SLA.</p></div>
+  </div>
+</section>
+<section class="quote"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Ccircle cx='48' cy='48' r='48' fill='%23c4b5fd'/%3E%3C/svg%3E"><p>"FlowPilot saved our ops team ten hours a week." - Dana, Head of Ops</p></section>
+<footer>&copy; 2026 FlowPilot <a href="#terms">Terms</a> <a href="#privacy">Privacy</a>
+  <div class="social"><a href="#x" aria-label="X"></a><a href="#gh" aria-label="GitHub"></a><a href="#li" aria-label="LinkedIn"></a></div></footer>
+<script>setTimeout(function(){var b=document.createElement('div');b.className='banner';
+b.textContent='Launch week: 30% off annual plans';document.body.insertBefore(b,document.body.firstChild);},700);</script>
+</body></html>

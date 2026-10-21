@@ -125,8 +125,9 @@ def _browser_through_guard(module):
         try:
             results, pages = {}, {}
             for width in viewports:
-                ctx = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=True, has_touch=True,
-                                          device_scale_factor=1)
+                mobile = width < 1024
+                ctx = browser.new_context(viewport={"width": width, "height": 800 if mobile else 900},
+                                          is_mobile=mobile, has_touch=mobile, device_scale_factor=1)
                 ctx.route("**/*", lambda route: route.abort() if route.request.resource_type in (
                     "media", "websocket", "eventsource", "manifest", "texttrack") else route.continue_())
                 ctx.add_init_script(module.INIT_JS)
@@ -137,7 +138,7 @@ def _browser_through_guard(module):
                 except Exception:  # slow images: measure what is there
                     pass
                 page.wait_for_timeout(300)
-                data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": True})
+                data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": mobile})
                 data["viewport"] = width
                 results[width] = data
                 pages[width] = page
