@@ -56,8 +56,12 @@ VARIANTS = {
                  "source": "Moltbook: a Supabase key in client-side JavaScript, 1.5M API keys exposed (Wiz, Feb 2026)",
                  "ex": "Your Supabase service_role key is in your website's code: anyone can read and change your database",
                  "fix": "Fix: use the anon key in the browser, keep service_role on the server only, and rotate it."},
+    "devtools": {"h1": "Press F12 on your site. Is your API key in there?", "source": "",
+                 "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, nothing stored.",
+                 "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
+                 "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
 }
-SUB = "See in about 10 seconds. Free, no signup, nothing stored."
+SUB = "See the result usually in under 20 seconds. Free, no signup, nothing stored."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
@@ -65,7 +69,7 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect wi
            'stroke-linejoin="round"/></svg>')
 
 DESC = ("Free check for apps built with Lovable, Bolt, v0, Replit or Cursor: secret keys in your site's code, "
-        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. About 10 seconds, no signup, "
+        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. Usually under 20 seconds, no signup, "
         "nothing stored.")
 
 CSS = """
@@ -173,7 +177,7 @@ def page(nonce, v="key", url_value="", error=""):
 <button type="submit" id="b">Check my app — free</button>
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
-<div class="sub">{SUB}</div>
+<div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
 {src}
 <div class="ex"><div class="exl">Example result</div><div class="exr"><span class="tag">HIGH</span><span>{esc(d["ex"])}</span></div>

@@ -156,7 +156,7 @@ class WebLayer(unittest.TestCase):
 class Presentation(unittest.TestCase):
     def test_variants_render(self):
         for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
-                          ("bogus", "secret key sitting")]:
+                          ("bogus", "secret key sitting"), ("devtools", "Press F12")]:
             with self.subTest(v=v):
                 self.assertIn(needle, app.page("n", v))
 
