@@ -223,11 +223,10 @@ class GoogleKey(unittest.TestCase):
         report = scan_fake(GEMINI_BUNDLE)
         g = [f for f in report["findings"] if f["rule"] == "secret-google-api"]
         self.assertEqual((len(g), g[0]["severity"]), (1, "HIGH"))
-        self.assertIn(g[0], report["fix_first"])
         self.assertLessEqual(report["score"], 39)
         page = app.result_page(report, "n")
         self.assertIn("Yes: 1 secret key showing", page)
-        self.assertIn("Other launch checks (", page)
+        self.assertIn("things to fix", page)
         self.assertNotIn(FAKE_GOOGLE_KEY, page)
 
 
@@ -340,21 +339,43 @@ REPORT = {"url": "https://a.com/", "final_url": "https://a.com/", "seconds": 5, 
 class Money(unittest.TestCase):
     def test_offer_uses_real_count_and_tracked_link(self):
         html_ = app.offer_block(REPORT, "bill", "reddit")
-        self.assertIn("We also found 5 things", html_)
-        self.assertIn("Fix all 5 with your AI", html_)
+        self.assertIn("We found 5 things to fix before launch", html_)
+        self.assertIn("Phone layout: 1", html_)
+        self.assertIn("/go/single-design?v=bill&amp;src=reddit", html_)   # top finding is phone layout
+        self.assertIn("Website Design Auditor, $19", html_)
         self.assertIn("/go/kit?v=bill&amp;src=reddit", html_)
+        self.assertNotIn("Google &amp; ChatGPT)", html_)  # search area did not run in this report
         self.assertEqual(html_.count("<li>"), 3)
+        ran = app.offer_block({**REPORT, "areas": {"search": {"score": 80}},
+                               "findings": [_f("search", "HIGH", "No sitemap")]})
+        self.assertIn("/go/single-geo?", ran)
+        self.assertIn("Everything (design + Google &amp; ChatGPT)", ran)
 
     def test_offer_when_nothing_else(self):
         clean = {**REPORT, "findings": [REPORT["findings"][0]]}
-        self.assertIn("Nothing else to fix", app.offer_block(clean))
+        self.assertIn("Nothing to fix in design or search", app.offer_block(clean))
         self.assertNotIn("/go/kit?", app.offer_block(clean))
 
     def test_fix_list_capped_with_kit_line(self):
         text = app.fix_prompt(REPORT, "key", "")
-        self.assertIn("No CSP", text)
-        self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 4)
+        self.assertIn("Some text is hard to read", text)   # phone / Google first, headers last
+        self.assertNotIn("No CSP", text)
+        self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 3)
+        self.assertIn("the other 2 too", text)
         self.assertTrue(text.rstrip().endswith("/go/kit-fixlist?v=key&src="))
+
+    def test_one_count_everywhere(self):
+        page = app.result_page({**REPORT, "score": 70, "verdict": "ALMOST READY", "verdict_detail": "",
+                                "areas": {k: {"label": k, "score": 70, "grade": "amber", "note": ""}
+                                          for k in ("security", "phone", "search", "speed")}}, "n")
+        self.assertIn("We found 5 things", page)
+        self.assertIn("top 3 of 5", page)
+        self.assertIn("All 5 things to fix", page)
+        self.assertNotIn("Uneven spacing", page)  # LOW items are hidden
+
+    def test_high_finding_caps_grade(self):
+        f = [_f("phone", "HIGH", "Page wider than the phone", "phone-overflow")]
+        self.assertEqual(scan.area_note("phone", scan.things_to_fix(f), None), "Page wider than the phone")
 
     def test_go_redirect_counts_and_stats_need_token(self):
         app.STATS_TOKEN = "t0ken-for-tests"

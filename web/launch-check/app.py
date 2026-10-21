@@ -36,6 +36,10 @@ GO = {  # outbound links go through /go/<name> so clicks can be counted (no cook
     "kit": KIT_BASE + "?utm_source=launchcheck&utm_medium=result&utm_content=offer",
     "kit-fixlist": KIT_BASE + "?utm_source=launchcheck&utm_medium=result&utm_content=fixlist",
     "skill": GITHUB,
+    "single-design": "https://www.agensi.io/skills/website-design-auditor-make-ai-built-sites-look-pro"
+                     "?utm_source=launchcheck&utm_medium=result&utm_content=single",
+    "single-geo": "https://www.agensi.io/skills/geo-seo-audit-crawler-get-found-by-ai-search"
+                  "?utm_source=launchcheck&utm_medium=result&utm_content=single",
 }
 KIT_PRICE = "$39"
 STATS_TOKEN = os.environ.get("STATS_TOKEN", "")
@@ -200,6 +204,13 @@ box-shadow:0 12px 32px rgba(22,163,74,.10)}
 .lc-buy{display:inline-block;background:#16a34a;color:#fff;font-weight:800;font-size:17px;text-decoration:none;
 border-radius:12px;padding:13px 20px}.lc-buy:hover{background:#15803d}
 .lc-offer small{display:block;color:#475569;font-size:13px;margin-top:10px}
+.lc-cats{color:#475569;font-size:14px;font-weight:600;margin:-4px 0 12px}
+.lc-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lc-choice{display:block;border-radius:14px;padding:14px 16px;text-decoration:none;font-size:14px}
+.lc-choice b{display:block;font-size:17px;margin-bottom:2px}.lc-choice span{opacity:.9}
+.lc-choice.p{background:#16a34a;color:#fff}.lc-choice.p:hover{background:#15803d}
+.lc-choice.s{background:#fff;color:#0f172a;border:2px solid #cbd5e1}.lc-choice.s:hover{border-color:#64748b}
+@media (max-width:700px){.lc-choices{grid-template-columns:1fr}}
 .lc-congrats{border:1px solid #bbf7d0;box-shadow:none;padding:16px 20px;font-size:16px}
 .lc-congrats a,.lc-free a{color:#15803d;font-weight:700}
 .lc-free{max-width:1080px;margin:0 auto;padding:0 28px 40px;color:#334155;font-size:15px}
@@ -278,7 +289,7 @@ def page(nonce, v="key", url_value="", error="", src=""):
 <span class="more">+ Google &amp; ChatGPT basics</span></div>"""
     script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
-document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 5–20 s';}},0);}});
+document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 10–20 s';}},0);}});
 </script>"""
     return shell(inner, nonce, v, script=script)
 
@@ -288,7 +299,7 @@ def progress_page(job_id, job, nonce):
     waiting = job["state"] == "queued"
     inner = f"""<div class="prog" role="status"><b>{'Waiting for a free scanner…' if waiting else f'Checking {host}…'}</b>
 <div class="bar" aria-hidden="true"><i></i></div>
-<p>Usually 5–20 s. This page updates by itself.</p></div>"""
+<p>Usually 10–20 s. This page updates by itself.</p></div>"""
     head = f'<noscript><meta http-equiv="refresh" content="3"></noscript><meta name="robots" content="noindex">'
     script = f"""<script nonce="{nonce}">(function(){{var u='/r/{job_id}/status';
 function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
@@ -301,8 +312,7 @@ KEY_RULES = ("supabase-found", "firebase-found")
 
 
 def key_items(report):
-    return [f for f in report["findings"] if f["severity"] != "INFO"
-            and (f["rule"].startswith("secret-") or f["rule"] in KEY_RULES)]
+    return [f for f in report["findings"] if scanner.is_key_item(f)]
 
 
 def secret_banner(report):
@@ -339,15 +349,17 @@ def secret_banner(report):
             f'<div class="lc-checked"><b>Checked:</b> {esc(report["final_url"])}{moved}</div></section>')
 
 
-OTHER_AREAS = ("phone", "search", "speed")
+SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill page, 39 on the bundle)
+    "phone": ("single-design", "Fix the phone layout", "Website Design Auditor, $19"),
+    "search": ("single-geo", "Get found by Google & ChatGPT", "GEO + SEO Audit, $19"),
+}
+CAT_LABEL = {"phone": "Phone layout", "search": "Google & ChatGPT", "speed": "Speed & basics",
+             "security": "Security headers"}
 
 
 def other_items(report):
-    """Design + Google/AI + basics findings (what the Web + SEO kit fixes), most important first."""
-    keys = key_items(report)
-    plain = tuple(scanner.lc.PHONE_PLAIN.values()) + tuple(scanner.lc.SEARCH_PLAIN.values())
-    items = [f for f in report["findings"] if f["severity"] != "INFO" and f["area"] in OTHER_AREAS and f not in keys]
-    return sorted(items, key=lambda f: (scanner.lc.SEV_ORDER[f["severity"]], 0 if f["title"].startswith(plain) else 1))
+    """THE things-to-fix list (HIGH + MEDIUM, keys excluded), phone and Google/ChatGPT first."""
+    return scanner.things_to_fix(report["findings"])
 
 
 def go(name, v, src):
@@ -355,50 +367,66 @@ def go(name, v, src):
 
 
 def offer_block(report, v="key", src=""):
-    others = other_items(report)
-    n = len(others)
-    if not n:
-        return (f'<section class="lc-offer lc-congrats"><b>Nothing else to fix:</b> your pages look finished to '
-                f'visitors, Google and ChatGPT. <a href="{esc(go("skill", v, src))}">Re-check after every change with '
-                f'the free Launch Check skill →</a></section>')
+    fix = other_items(report)
+    n = len(fix)
+    if not any(f["area"] in ("phone", "search", "speed") for f in fix):
+        rest = f" The free fix list below covers the {n} security-header item{'s' if n != 1 else ''}." if n else ""
+        return ('<section class="lc-offer lc-congrats"><b>Nothing to fix in design or search:</b> no phone-layout, '
+                f'Google or speed problems worth fixing before launch.{rest}</section>')
+    search_ran = (report.get("areas", {}).get("search") or {}).get("score") is not None
+    cats = [(a, sum(1 for f in fix if f["area"] == a)) for a in scanner.FIX_ORDER]
+    cat_line = " · ".join(f"{CAT_LABEL[a]}: {c}" for a, c in cats if c)
     s = "s" if n != 1 else ""
-    top = "".join(f"<li>{esc(scanner.lc.short(f['title'], 110))}</li>" for f in others[:3])
-    return (f'<section class="lc-offer"><h2>We also found {n} thing{s} that make your site look unfinished or '
-            f'invisible to Google and ChatGPT</h2><ul>{top}</ul>'
-            f'<a class="lc-buy" href="{esc(go("kit", v, src))}" rel="noopener">Fix all {n} with your AI — Web + SEO kit, '
-            f'{KIT_PRICE}</a><small>3 tools your AI runs: Website Design Auditor, GEO + SEO Audit, Landing Page Designer'
-            f' · one-time · refund if it doesn\'t do what it says (Agensi guarantee)</small></section>')
+    top = "".join(f"<li>{esc(scanner.lc.short(f['title'], 110))}</li>" for f in fix[:3])
+    lead = next((f["area"] for f in fix if f["area"] in SINGLES), None)
+    if lead == "search" and not search_ran:
+        lead = None
+    choices = ""
+    if lead:
+        name, verb, product = SINGLES[lead]
+        choices += (f'<a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b>{esc(verb)}</b>'
+                    f'<span>{esc(product)}</span></a>')
+    kit_what = "Everything (design + Google & ChatGPT)" if search_ran else "Everything (design + SEO)"
+    choices += (f'<a class="lc-choice {"s" if lead else "p"}" href="{esc(go("kit", v, src))}" rel="noopener">'
+                f'<b>{esc(kit_what)}</b><span>Web + SEO kit, {KIT_PRICE}</span></a>')
+    return (f'<section class="lc-offer"><h2>We found {n} thing{s} to fix before launch</h2>'
+            f'<div class="lc-cats">{esc(cat_line)}</div><ul>{top}</ul><div class="lc-choices">{choices}</div>'
+            f'<small>Your AI runs the fixes · one-time · refund if it doesn\'t do what it says (Agensi guarantee)'
+            f'</small></section>')
 
 
 def fix_prompt(report, v="key", src=""):
-    """Free fix list: every security item + the top 3 others, then one line about the kit."""
+    """Free fix list: any key items + the top 3 things to fix, then one line about the kit."""
     keys = key_items(report)
-    sec = keys + [f for f in report["findings"] if f["area"] == "security" and f["severity"] in ("HIGH", "MEDIUM")
-                  and f not in keys]
-    rest = [f for f in report["findings"] if f["area"] != "security" and f["severity"] in ("HIGH", "MEDIUM")
-            and f not in keys][:3]
-    text = scanner.lc.ai_prompt({**report, "fix_first": sec + rest})
-    if text and other_items(report):
-        text += f"\n\nWant your AI to fix everything else too? Web + SEO kit: {SITE}{go('kit-fixlist', v, src)}"
+    fix = other_items(report)
+    text = scanner.lc.ai_prompt({**report, "fix_first": keys + fix[:3]})
+    if text and len(fix) > 3:
+        text += (f"\n\nWant your AI to fix the other {len(fix) - 3} too? Web + SEO kit: "
+                 f"{SITE}{go('kit-fixlist', v, src)}")
     return text
 
 
 def result_page(report, nonce, v="key", src=""):
-    doc = scanner.render(report)
+    fix = other_items(report)
+    n = len(fix)
+    # the collapsed section shows exactly the things-to-fix list: one count everywhere
+    doc = scanner.render({**report, "findings": fix, "fix_first": fix})
     doc = re.sub(r'<div class="ask">.*?</pre></div>', "", doc, count=1, flags=re.S)
     prompt = fix_prompt(report, v, src)
-    ask = (f'<div class="ask"><div class="h">Free fix list for your AI</div>'
+    top_n = min(3, n)
+    keys_n = len(key_items(report))
+    parts = ([f"{keys_n} key item{'s' if keys_n != 1 else ''}"] if keys_n else []) + ([f"top {top_n} of {n}"] if n else [])
+    title = "Free fix list for your AI" + (f" ({' + '.join(parts)})" if parts else "")
+    ask = (f'<div class="ask"><div class="h">{esc(title)}</div>'
            f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
            if prompt else "")
     keys = key_items(report)
     red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
     offer = offer_block(report, v, src)
     first = secret_banner(report) + (ask + offer if red else offer + ask)
-    other = [f for f in report["findings"] if f["severity"] != "INFO" and f not in keys]
-    summary = (f'<details class="lc-other"><summary>Other launch checks ({len(other)}) <span>score '
-               f'{report["score"]}/100 · headers, phone, Google &amp; AI, speed</span></summary><div class="lc-oin">')
-    free = (f'<p class="lc-free">Prefer to run every check yourself? <a href="{esc(go("skill", v, src))}" '
-            f'rel="noopener">The full Launch Check is a free skill for Claude Code and Cursor →</a></p>')
+    summary = (f'<details class="lc-other"><summary>All {n} thing{"s" if n != 1 else ""} to fix <span>score '
+               f'{report["score"]}/100 · phone, Google &amp; ChatGPT, speed, security headers</span></summary>'
+               f'<div class="lc-oin">')
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
 function ok(){{b.textContent='Copied — paste it to your AI';}}
@@ -409,16 +437,17 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + '</style><meta name="robots" '
                       'content="noindex"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
     doc = doc.replace('<section class="hero">', first + summary + '<section class="hero">', 1)
-    doc = doc.replace("<h2>Fix this first</h2>", "<h2>Fix these first</h2>", 1)
+    doc = doc.replace("<h2>Fix this first</h2>", f"<h2>All {n} things to fix, most important first</h2>", 1)
+    doc = doc.replace("<h2>All findings</h2>", "<h2>By category</h2>", 1)
     doc = doc.replace('<div class="foot">', '</div></details><div class="foot">', 1)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Web version: phone design uses basic checks (no "
-                      "browser), no open-database test. Nothing was written to disk: this report stays in memory for "
-                      "10 minutes so the page can load, then it is dropped."
-                      + "".join(f"<br>Note: {esc(n)}" for n in report.get("notes", [])[:4]) + "</div>", 1)
+                      "browser), no open-database test, minor (low) items hidden. Nothing was written to disk: this "
+                      "report stays in memory for 10 minutes so the page can load, then it is dropped."
+                      + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
-        doc = doc[: -len(tail)] + "</div>" + free + script + "</body></html>"
+        doc = doc[: -len(tail)] + "</div>" + script + "</body></html>"
     return doc
 
 

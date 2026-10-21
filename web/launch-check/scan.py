@@ -271,8 +271,8 @@ def check_phone_basic(url, timeout):
 
 
 def check_search(url, timeout):
-    report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.2",
-                                                "--link-budget", "5", "--timeout", str(int(REQ_TIMEOUT))], timeout)
+    report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.1",
+                                                "--link-budget", "3", "--timeout", str(int(REQ_TIMEOUT))], timeout)
     if report is None:
         return None, [], f"skipped: {err}", {}
     out = []
@@ -349,6 +349,31 @@ def fetch_page(fetcher, url, max_hops=5):
     raise ScanError("The address redirects more than 5 times. Paste the final address of your app.")
 
 
+FIX_ORDER = ("phone", "search", "speed", "security")
+KEY_RULES = ("supabase-found", "firebase-found")
+
+
+def is_key_item(f):
+    return f["severity"] != "INFO" and (f["rule"].startswith("secret-") or f["rule"] in KEY_RULES)
+
+
+def things_to_fix(findings):
+    """THE count used everywhere on the result page: HIGH + MEDIUM, keys excluded (they have their own section),
+    phone layout and Google/ChatGPT first, security headers last."""
+    items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)]
+    return sorted(items, key=lambda f: (FIX_ORDER.index(f["area"]), lc.SEV_ORDER[f["severity"]]))
+
+
+def area_note(key, fix, skipped):
+    if skipped:
+        return skipped
+    fs = [f for f in fix if f["area"] == key]
+    if not fs:
+        return "nothing important found"
+    more = f" (+{len(fs) - 1} more)" if len(fs) > 1 else ""
+    return lc.short(fs[0]["title"], 74 - len(more)) + more
+
+
 def scan(raw_url):
     t0 = time.time()
     deadline = t0 + BUDGET
@@ -416,10 +441,12 @@ def scan(raw_url):
         skipped["search"] = why
 
     findings.sort(key=lambda f: (lc.SEV_ORDER[f["severity"]], [k for k, _ in lc.AREAS].index(f["area"])))
+    for area in ("phone", "search", "speed"):  # a category with a HIGH finding is never "Good"
+        if scores.get(area) is not None and any(f["severity"] == "HIGH" and f["area"] == area for f in findings):
+            scores[area] = min(scores[area], 79)
     overall = lc.combine(scores, findings)
     highs = sum(1 for f in findings if f["severity"] == "HIGH")
-    urgent = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM")]
-    fix_first = ([f for f in urgent if f["area"] == "security"] + [f for f in urgent if f["area"] != "security"])[:5]
+    fix_first = things_to_fix(findings)
     sec_high = sum(1 for f in findings if f["severity"] == "HIGH" and f["area"] == "security")
     word, sub = lc.verdict(overall, highs, len(fix_first), sec_high)
     return {
@@ -428,7 +455,7 @@ def scan(raw_url):
         "score": overall, "verdict": word, "verdict_detail": sub, "pass": overall >= 80 and highs == 0,
         "fail_under": 80,
         "areas": {k: {"label": label, "score": scores.get(k), "grade": lc.grade(scores.get(k)),
-                      "note": lc.area_note(k, findings, scores.get(k), skipped.get(k))} for k, label in lc.AREAS},
+                      "note": area_note(k, fix_first, skipped.get(k))} for k, label in lc.AREAS},
         "counts": {s.lower(): sum(1 for f in findings if f["severity"] == s) for s in lc.SEV_ORDER},
         "fix_first": fix_first, "findings": findings,
         "facts": {"assets": assets, "basics": basics_info, "search": search_info, "requests_made": fetcher.requests},

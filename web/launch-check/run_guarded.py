@@ -14,6 +14,22 @@ sys.path.insert(0, str(HERE))
 
 import guard  # noqa: E402
 
+def _bound_llms(module, limit=3.0):
+    """Some sites generate llms.txt on the fly (10+ s): give that one optional check 3 s, then move on."""
+    import threading
+    original = module.Audit.load_llms
+
+    def load_llms(self):
+        t = threading.Thread(target=original, args=(self,), daemon=True)
+        t.start()
+        t.join(limit)
+        if t.is_alive() or not getattr(self, "llms", None):
+            self.llms = {"url": "", "found": False, "status": None, "html": False, "text": "",
+                         "skipped": "llms.txt answered too slowly for the web check"}
+
+    module.Audit.load_llms = load_llms
+
+
 ALLOWED = {"geo_audit.py": "geo_audit", "polish_audit.py": "polish_audit"}
 
 if __name__ == "__main__":
@@ -26,4 +42,7 @@ if __name__ == "__main__":
     except Exception:  # non-reconfigurable stream
         pass
     module = importlib.import_module(ALLOWED[name])
+    if name == "geo_audit.py":  # web budget: read at most 3 sitemap files (a big sitemap index can take 10+ s)
+        module.MAX_SITEMAP_FILES["network"] = 3
+        _bound_llms(module)
     sys.exit(module.main(sys.argv[2:]))
