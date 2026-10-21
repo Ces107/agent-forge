@@ -63,7 +63,7 @@ def _attr(value: str) -> str:
 
 def meta_tags_html(report: dict) -> str:
     pm = report.get("page_meta") or {}
-    url = report.get("final_url", "")
+    url = report.get("pack_url") or report.get("final_url", "")
     host = urlparse.urlsplit(url).hostname or url
     title = pm.get("title") or host
     desc = pm.get("description") or pm.get("summary") or ""
@@ -225,7 +225,7 @@ def build_pack(report: dict, rescan_url: str) -> dict:
     shots, render = render_sizes(report["final_url"])
     host = (urlparse.urlsplit(report["final_url"]).hostname or "site").replace(":", "-")
     listing = "\n".join(f"  {n:<15}{FILE_ABOUT.get(n, '')}" for n in files)
-    readme = README.format(url=report["final_url"], date=time.strftime("%Y-%m-%d"), score=report["score"],
+    readme = README.format(url=(report.get("pack_url") or report["final_url"]), date=time.strftime("%Y-%m-%d"), score=report["score"],
                            listing=listing, rescan=rescan_url)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

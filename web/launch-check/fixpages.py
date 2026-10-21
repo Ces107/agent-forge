@@ -115,7 +115,7 @@ def pack_page(report, pack, scan_id, token, nonce, demo):
                    + (f'<br><small>{esc(f["where"])}</small>' if f.get("where") else "") + f'<br>{esc(f["fix"])}</td></tr>'
                    for f in report["findings"] if f["severity"] != "INFO")
     listing = "\n".join(f"  {n:<15}{fixpack.FILE_ABOUT.get(n, '')}" for n in pack["files"])
-    readme = fixpack.README.format(url=report["final_url"], date=time.strftime("%Y-%m-%d", time.gmtime(pack["built"])),
+    readme = fixpack.README.format(url=(report.get("pack_url") or report["final_url"]), date=time.strftime("%Y-%m-%d", time.gmtime(pack["built"])),
                                    score=report["score"], listing=listing, rescan="the Re-scan button on this page")
     body = (top + shots + f'<div class="card"><h2>Your files</h2>{files}</div>' + prompt_card
             + f'<div class="card"><h2>All findings with fixes</h2><table>{rows}</table></div>'

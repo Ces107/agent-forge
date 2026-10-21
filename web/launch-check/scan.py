@@ -405,17 +405,39 @@ def read_fix_files(folder):
     return files
 
 
+DEMO_BASE = (os.environ.get("BASE_URL") or os.environ.get("PUBLIC_URL") or "").rstrip("/")
+DEMO_PATH = "/demo/flowpilot/"
+DEMO_SITE = "https://flowpilot.example/"
+
+
+def is_demo(url):
+    """The seeded FlowPilot page we host for the sample Fix Pack."""
+    parts = urlparse.urlsplit(url)
+    return bool(DEMO_BASE) and parts.path == DEMO_PATH and \
+        (parts.hostname or "") == (urlparse.urlsplit(DEMO_BASE).hostname or "-")
+
+
 def check_search(url, timeout):
     import shutil
     import tempfile
     emit = tempfile.mkdtemp(prefix="lc-fix-")
+    site = None
     try:
-        report, err = run_vendored("geo_audit.py", [url, "--json", "--max-pages", "2", "--delay", "0.1",
-                                                    "--link-budget", "3", "--timeout", str(int(REQ_TIMEOUT)),
-                                                    "--emit-fixes", emit, "--force"], timeout)
+        if is_demo(url):
+            # The demo page lives on our own host, whose robots/sitemap/llms belong to Launch Check: audit the page
+            # as the stand-alone site it pretends to be (geo --local), so the sample pack is what a real buyer gets.
+            site = tempfile.mkdtemp(prefix="lc-demo-")
+            shutil.copy(os.path.join(HERE, "static", "demo-flowpilot.html"), os.path.join(site, "index.html"))
+            args = ["--local", site, "--base-url", DEMO_SITE, "--json", "--emit-fixes", emit, "--force"]
+        else:
+            args = [url, "--json", "--max-pages", "2", "--delay", "0.1", "--link-budget", "3",
+                    "--timeout", str(int(REQ_TIMEOUT)), "--emit-fixes", emit, "--force"]
+        report, err = run_vendored("geo_audit.py", args, timeout)
         fix_files = read_fix_files(emit) if report is not None else {}
     finally:
         shutil.rmtree(emit, ignore_errors=True)
+        if site:
+            shutil.rmtree(site, ignore_errors=True)
     if report is None:
         return None, [], f"skipped: {err}", {}
     out = []
@@ -439,6 +461,7 @@ def check_search(url, timeout):
         summary = m.group(1).strip()[:300]
     return int(report.get("score", 0)), out[:12], "", {"pages": report.get("pages_crawled"), "fix_files": fix_files,
                                                        "summary": summary,
+                                                       "pack_url": DEMO_SITE if site else "",
                                                        "sitemap_note": (report.get("sitemap_emit") or {}).get("note", "")}
 
 
@@ -631,6 +654,7 @@ def scan(raw_url):
         "facts": {"assets": assets, "basics": basics_info, "requests_made": fetcher.requests,
                   "search": {k: v for k, v in search_info.items() if k != "fix_files"}},
         "fix_files": search_info.get("fix_files", {}),
+        "pack_url": search_info.get("pack_url") or lc.clean(final, 300),
         "page_meta": {"title": lc.clean(parser.title.strip(), 200),
                       "description": lc.clean(parser.meta.get("description", "").strip(), 400),
                       "og": {k: lc.clean(v, 400) for k, v in parser.meta.items() if k.startswith(("og:", "twitter:"))},
