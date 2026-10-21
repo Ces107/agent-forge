@@ -371,9 +371,9 @@ SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill 
     "search": ("single-geo", "Let my AI fix Google & ChatGPT visibility — $19",
                "GEO + SEO Audit: also writes your sitemap, JSON-LD and llms.txt"),
 }
-COMPARE = ("The full skill adds what this basic check (1 screen size) cannot: on news.ycombinator.com this check "
-           "marked 15 spots at phone size; the full skill marked 17 across phone, tablet and desktop (22 with minor "
-           "ones), then fixed them and re-scored.")
+COMPARE = ("What the full skill adds, measured on news.ycombinator.com: this basic check (page code, 1 screen size) "
+           "found 9 phone issues; the full skill rendered the page at phone, tablet and desktop size and found 17 "
+           "(22 with minor ones), each marked on a screenshot, then fixes them and re-scores.")
 RUNS = ("Runs inside Claude Code, Cursor or Codex: your AI renders the page, fixes each issue and re-scores until "
         "it passes.")
 CAT_LABEL = {"phone": "Phone layout", "search": "Google & ChatGPT", "speed": "Speed & basics",
@@ -457,8 +457,13 @@ def phone_section(report):
                 f'(1 screen size). Numbered boxes = problems:</p><ul>{legend or "<li>No phone problems marked.</li>"}'
                 f'</ul></div></div></section>')
     if pv.get("mode") in ("static", "render"):  # render without a usable screenshot counts as basic
+        reason = pv.get("reason") or "no screenshot"
+        if reason == "no browser on this server":
+            return ('<section class="lc-phone lc-phs"><b>Phone layout: basic check (page code, 1 screen size).</b> '
+                    'This free scan reads your page code; it does not render it. The full skill renders your page in a '
+                    'real browser at phone, tablet and desktop size and marks each problem on a screenshot.</section>')
         return (f'<section class="lc-phone lc-phs"><b>Phone layout: basic check from the page code only</b> (no browser '
-                f'render this time: {esc(pv.get("reason") or "no screenshot")}).</section>')
+                f'render this time: {esc(reason)}).</section>')
     return ('<section class="lc-phone lc-phs"><b>Phone layout: not checked</b> (the check did not finish in time).'
             '</section>')
 
