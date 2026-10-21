@@ -9,6 +9,11 @@
   },
   "plugins": [
     {
+      "name": "done-gate",
+      "source": "./plugins/done-gate",
+      "description": "Free hook: Claude Code can't say \"done\" until the tests really pass after its last edit."
+    },
+    {
       "name": "agent-forge",
       "source": "./plugins/agent-forge",
       "description": "Proven code review, verify gate, spec trace gate and adversarial review gate: skills that prove their work instead of asserting it."
