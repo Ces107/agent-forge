@@ -1,6 +1,8 @@
 """SSRF guard tests: run with  python -m pytest web/launch-check/tests -q  (or python -m unittest)."""
 
+import http.client
 import http.server
+import json as _json
 import sys
 import threading
 import unittest
@@ -320,6 +322,71 @@ class Presentation(unittest.TestCase):
         self.assertIn("No secret keys found", app.secret_banner({**base, "findings": []}))
         leak = {"rule": "secret-stripe-secret", "severity": "HIGH", "title": "t", "fix": "f", "where": "", "value": ""}
         self.assertIn("Yes: 1 secret key showing", app.secret_banner({**base, "findings": [leak]}))
+
+
+def _f(area, sev, title, rule="x"):
+    return {"area": area, "severity": sev, "title": title, "fix": "fix " + title, "where": "", "value": "",
+            "rule": rule, "detail": ""}
+
+
+REPORT = {"url": "https://a.com/", "final_url": "https://a.com/", "seconds": 5, "score": 70,
+          "facts": {"assets": {"scanned": 3}},
+          "findings": [_f("security", "MEDIUM", "No CSP", "csp-missing"),
+                       _f("phone", "MEDIUM", "Some text is hard to read"), _f("search", "HIGH", "No sitemap"),
+                       _f("speed", "MEDIUM", "No meta description"), _f("search", "MEDIUM", "No llms.txt"),
+                       _f("phone", "LOW", "Uneven spacing")]}
+
+
+class Money(unittest.TestCase):
+    def test_offer_uses_real_count_and_tracked_link(self):
+        html_ = app.offer_block(REPORT, "bill", "reddit")
+        self.assertIn("We also found 5 things", html_)
+        self.assertIn("Fix all 5 with your AI", html_)
+        self.assertIn("/go/kit?v=bill&amp;src=reddit", html_)
+        self.assertEqual(html_.count("<li>"), 3)
+
+    def test_offer_when_nothing_else(self):
+        clean = {**REPORT, "findings": [REPORT["findings"][0]]}
+        self.assertIn("Nothing else to fix", app.offer_block(clean))
+        self.assertNotIn("/go/kit?", app.offer_block(clean))
+
+    def test_fix_list_capped_with_kit_line(self):
+        text = app.fix_prompt(REPORT, "key", "")
+        self.assertIn("No CSP", text)
+        self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 4)
+        self.assertTrue(text.rstrip().endswith("/go/kit-fixlist?v=key&src="))
+
+    def test_go_redirect_counts_and_stats_need_token(self):
+        app.STATS_TOKEN = "t0ken-for-tests"
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
+        try:
+            def get(path):
+                c = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=5)
+                c.request("GET", path)
+                r = c.getresponse()
+                return r.status, r.getheader("Location"), r.read()
+            before = app.STATS["totals"].get("click:kit", 0)
+            st, loc, _ = get("/go/kit?v=stat&src=x")
+            self.assertEqual((st, loc), (302, app.GO["kit"]))
+            self.assertIn("utm_content=offer", loc)
+            self.assertEqual(get("/go/evil")[0], 404)
+            self.assertEqual(get("/stats?token=wrong")[0], 404)
+            st, _, body = get("/stats?token=t0ken-for-tests")
+            data = _json.loads(body)
+            self.assertEqual(data["totals"]["click:kit"], before + 1)
+            self.assertIn("v=stat,src=x", data["by"]["click:kit"])
+            self.assertNotIn("127.0.0.1", body.decode())
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
+            srv.shutdown()
+
+    def test_new_variants(self):
+        self.assertIn("look unfinished", app.page("n", "polish"))
+        self.assertIn("ready to launch", app.page("n", "ready"))
+        self.assertIn("Optional fix kits on Agensi", app.page("n", "key"))
+        self.assertIn('name="src" value="reddit"', app.page("n", "key", src="Reddit"))
 
 
 if __name__ == "__main__":

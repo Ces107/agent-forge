@@ -31,6 +31,17 @@ SITE = os.environ.get("PUBLIC_URL", "https://launch-check-upz2.onrender.com").rs
 GITHUB = "https://github.com/Ces107/agent-forge/tree/main/skills/launch-check"
 KIT_WEB = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-ai?utm_source=launchcheck"
 KIT_GUARD = "https://www.agensi.io/bundles/claude-code-guardrails-safe-honest-agent-kit?utm_source=launchcheck"
+KIT_BASE = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-ai"
+GO = {  # outbound links go through /go/<name> so clicks can be counted (no cookies, no IPs, no scanned URLs)
+    "kit": KIT_BASE + "?utm_source=launchcheck&utm_medium=result&utm_content=offer",
+    "kit-fixlist": KIT_BASE + "?utm_source=launchcheck&utm_medium=result&utm_content=fixlist",
+    "skill": GITHUB,
+}
+KIT_PRICE = "$39"
+STATS_TOKEN = os.environ.get("STATS_TOKEN", "")
+_stats_lock = threading.Lock()
+STATS = {"since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "totals": defaultdict(int),
+         "by": defaultdict(lambda: defaultdict(int))}
 RATE_MAX, RATE_WINDOW = 10, 600         # scans per IP per 10 minutes
 CONCURRENCY = threading.BoundedSemaphore(2)
 QUEUE_WAIT = 40                         # seconds a scan may wait for a free scanner
@@ -60,6 +71,15 @@ VARIANTS = {
                  "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, nothing stored.",
                  "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
                  "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
+    "polish": {"h1": "Does your AI-built site look unfinished?", "source": "",
+               "sub": "Free scan: what breaks on phones, what Google and ChatGPT can't read, and whether a key is "
+                      "showing. Usually under 20 seconds.",
+               "sev": "MEDIUM", "ex": "Your page is wider than a phone screen, and Google sees no description",
+               "fix": "Fix: remove fixed widths wider than the screen and add a 120-160 character meta description."},
+    "ready": {"h1": "Is your AI-built app ready to launch?", "source": "",
+              "sub": "Free scan in under 20 seconds: secret keys, phone layout, Google & ChatGPT, speed.",
+              "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
+              "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
     "bill": {"h1": "A leaked Gemini key cost a 3-person startup $82,314 in 48 hours.",
              "source": "Reported by the developer, via The Register, March 2026",
              "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
@@ -100,6 +120,7 @@ button[disabled]{opacity:.75;cursor:wait}
 .sub{color:#1e293b;margin-top:14px;font-size:16px;font-weight:600}
 .trust{color:#334155;font-size:15px;margin-top:6px}.trust a{color:#334155;font-weight:650}
 .src{color:#475569;font-size:13px;margin-top:8px}
+.biz{color:#475569;font-size:13px;margin-top:4px}
 .ex{margin-top:22px;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--red);
 border-radius:14px;padding:12px 16px}
 .exl{font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
@@ -171,9 +192,44 @@ details.lc-other[open]>summary{border-bottom:1px solid #e2e8f0}.lc-oin{padding:1
 .lc-oin{padding:12px}}
 """
 
+OFFER_CSS = """
+.lc-offer{background:#fff;border:2px solid #16a34a;border-radius:22px;padding:22px 26px;margin:0 0 14px;
+box-shadow:0 12px 32px rgba(22,163,74,.10)}
+.lc-offer h2{font-size:24px;line-height:1.2;letter-spacing:-.015em;margin:0 0 12px;color:#0f172a}
+.lc-offer ul{margin:0 0 16px;padding-left:20px;color:#334155;font-size:15px}.lc-offer li{margin:4px 0}
+.lc-buy{display:inline-block;background:#16a34a;color:#fff;font-weight:800;font-size:17px;text-decoration:none;
+border-radius:12px;padding:13px 20px}.lc-buy:hover{background:#15803d}
+.lc-offer small{display:block;color:#475569;font-size:13px;margin-top:10px}
+.lc-congrats{border:1px solid #bbf7d0;box-shadow:none;padding:16px 20px;font-size:16px}
+.lc-congrats a,.lc-free a{color:#15803d;font-weight:700}
+.lc-free{max-width:1080px;margin:0 auto;padding:0 28px 40px;color:#334155;font-size:15px}
+@media (max-width:600px){.lc-offer{padding:18px 16px}.lc-offer h2{font-size:20px}.lc-buy{display:block;text-align:center}
+.lc-free{padding:0 16px 32px}}
+"""
+
 
 def esc(s):
     return html.escape(str(s), quote=True)
+
+
+def clean_src(raw):
+    raw = (raw or "").strip().lower()[:32]
+    return raw if re.fullmatch(r"[a-z0-9_.-]{1,32}", raw) else ""
+
+
+def count(event, v="key", src=""):
+    """Aggregate counters only: event name, landing variant, utm_source. Logged as one line for durability."""
+    dim = f"v={variant(v)},src={clean_src(src) or '-'}"
+    with _stats_lock:
+        STATS["totals"][event] += 1
+        STATS["by"][event][dim] += 1
+    sys.stderr.write(f"stat {event} {dim}\n")
+
+
+def stats_json():
+    with _stats_lock:
+        return json.dumps({"since": STATS["since"], "totals": dict(STATS["totals"]),
+                           "by": {k: dict(v) for k, v in STATS["by"].items()}}, indent=1, sort_keys=True)
 
 
 def variant(v):
@@ -197,22 +253,23 @@ def shell(inner, nonce, v="key", extra_head="", script=""):
 </div></main>{script}</body></html>"""
 
 
-def page(nonce, v="key", url_value="", error=""):
+def page(nonce, v="key", url_value="", error="", src=""):
     v = variant(v)
     d = VARIANTS[v]
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
-    src = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
+    src_html = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
     inner = f"""<h1>{esc(d["h1"])}</h1>
 {err}<form method="post" action="/check" id="f">
 <input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
  placeholder="https://your-app.lovable.app" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
-<input type="hidden" name="v" value="{v}">
+<input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">
 <button type="submit" id="b">Check my app — free</button>
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
 <div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
-{src}
+<div class="biz">Free scan. Optional fix kits on Agensi.</div>
+{src_html}
 <div class="ex{' amber' if d.get('sev') == 'MEDIUM' else ''}"><div class="exl">Example result</div><div class="exr"><span class="tag">{d.get('sev', 'HIGH')}</span><span>{esc(d["ex"])}</span></div>
 <div class="exf">{esc(d["fix"])}</div></div>
 <div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>
@@ -282,31 +339,66 @@ def secret_banner(report):
             f'<div class="lc-checked"><b>Checked:</b> {esc(report["final_url"])}{moved}</div></section>')
 
 
-def fix_prompt(report):
+OTHER_AREAS = ("phone", "search", "speed")
+
+
+def other_items(report):
+    """Design + Google/AI + basics findings (what the Web + SEO kit fixes), most important first."""
     keys = key_items(report)
-    rest = [f for f in report["findings"] if f["severity"] in ("HIGH", "MEDIUM") and f not in keys]
-    return scanner.lc.ai_prompt({**report, "fix_first": (keys + rest)[:10]})
+    plain = tuple(scanner.lc.PHONE_PLAIN.values()) + tuple(scanner.lc.SEARCH_PLAIN.values())
+    items = [f for f in report["findings"] if f["severity"] != "INFO" and f["area"] in OTHER_AREAS and f not in keys]
+    return sorted(items, key=lambda f: (scanner.lc.SEV_ORDER[f["severity"]], 0 if f["title"].startswith(plain) else 1))
 
 
-def result_page(report, nonce):
+def go(name, v, src):
+    return f"/go/{name}?" + urlparse.urlencode({"v": variant(v), "src": clean_src(src)})
+
+
+def offer_block(report, v="key", src=""):
+    others = other_items(report)
+    n = len(others)
+    if not n:
+        return (f'<section class="lc-offer lc-congrats"><b>Nothing else to fix:</b> your pages look finished to '
+                f'visitors, Google and ChatGPT. <a href="{esc(go("skill", v, src))}">Re-check after every change with '
+                f'the free Launch Check skill →</a></section>')
+    s = "s" if n != 1 else ""
+    top = "".join(f"<li>{esc(scanner.lc.short(f['title'], 110))}</li>" for f in others[:3])
+    return (f'<section class="lc-offer"><h2>We also found {n} thing{s} that make your site look unfinished or '
+            f'invisible to Google and ChatGPT</h2><ul>{top}</ul>'
+            f'<a class="lc-buy" href="{esc(go("kit", v, src))}" rel="noopener">Fix all {n} with your AI — Web + SEO kit, '
+            f'{KIT_PRICE}</a><small>3 tools your AI runs: Website Design Auditor, GEO + SEO Audit, Landing Page Designer'
+            f' · one-time · refund if it doesn\'t do what it says (Agensi guarantee)</small></section>')
+
+
+def fix_prompt(report, v="key", src=""):
+    """Free fix list: every security item + the top 3 others, then one line about the kit."""
+    keys = key_items(report)
+    sec = keys + [f for f in report["findings"] if f["area"] == "security" and f["severity"] in ("HIGH", "MEDIUM")
+                  and f not in keys]
+    rest = [f for f in report["findings"] if f["area"] != "security" and f["severity"] in ("HIGH", "MEDIUM")
+            and f not in keys][:3]
+    text = scanner.lc.ai_prompt({**report, "fix_first": sec + rest})
+    if text and other_items(report):
+        text += f"\n\nWant your AI to fix everything else too? Web + SEO kit: {SITE}{go('kit-fixlist', v, src)}"
+    return text
+
+
+def result_page(report, nonce, v="key", src=""):
     doc = scanner.render(report)
     doc = re.sub(r'<div class="ask">.*?</pre></div>', "", doc, count=1, flags=re.S)
-    prompt = fix_prompt(report)
-    ask = (f'<div class="ask"><div class="h">Paste to your AI: the key answer and every other launch check</div>'
+    prompt = fix_prompt(report, v, src)
+    ask = (f'<div class="ask"><div class="h">Free fix list for your AI</div>'
            f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
            if prompt else "")
     keys = key_items(report)
+    red = any(f["severity"] == "HIGH" and f["rule"].startswith("secret-") for f in keys)
+    offer = offer_block(report, v, src)
+    first = secret_banner(report) + (ask + offer if red else offer + ask)
     other = [f for f in report["findings"] if f["severity"] != "INFO" and f not in keys]
     summary = (f'<details class="lc-other"><summary>Other launch checks ({len(other)}) <span>score '
                f'{report["score"]}/100 · headers, phone, Google &amp; AI, speed</span></summary><div class="lc-oin">')
-    funnel = f"""<section class="lc-next"><h2>Next</h2><div class="lc-cards">
-<a href="{GITHUB}" rel="noopener"><b>Fix it with your AI, free</b><span>Run the full Launch Check in Claude Code or
-Cursor: real phone test, open-database test on your own site, re-check after each fix.</span> <em>GitHub →</em></a>
-<a href="{KIT_WEB}" rel="noopener"><b>Want the fixes done for you?</b><span>Web + SEO kit: landing page, polish and
-search fixes, applied by your AI.</span> <em>See the kit →</em></a>
-<a href="{KIT_GUARD}" rel="noopener"><b>Building with Claude Code?</b><span>Guardrails kit: stops risky commands,
-leaked keys and "done" claims that are not done.</span> <em>See the kit →</em></a>
-</div></section>"""
+    free = (f'<p class="lc-free">Prefer to run every check yourself? <a href="{esc(go("skill", v, src))}" '
+            f'rel="noopener">The full Launch Check is a free skill for Claude Code and Cursor →</a></p>')
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
 function ok(){{b.textContent='Copied — paste it to your AI';}}
@@ -314,9 +406,9 @@ if(navigator.clipboard&&navigator.clipboard.writeText){{navigator.clipboard.writ
 function fallback(){{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();
 try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
-    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + '</style><meta name="robots" content="noindex">'
-                      '<link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
-    doc = doc.replace('<section class="hero">', secret_banner(report) + ask + summary + '<section class="hero">', 1)
+    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + '</style><meta name="robots" '
+                      'content="noindex"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
+    doc = doc.replace('<section class="hero">', first + summary + '<section class="hero">', 1)
     doc = doc.replace("<h2>Fix this first</h2>", "<h2>Fix these first</h2>", 1)
     doc = doc.replace('<div class="foot">', '</div></details><div class="foot">', 1)
     doc = doc.replace("A good score is not a security audit.</div>",
@@ -326,7 +418,7 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
                       + "".join(f"<br>Note: {esc(n)}" for n in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
-        doc = doc[: -len(tail)] + "</div>" + funnel + script + "</body></html>"
+        doc = doc[: -len(tail)] + "</div>" + free + script + "</body></html>"
     return doc
 
 
@@ -359,7 +451,7 @@ def _prune(now):
         JOBS.pop(k, None)
 
 
-def start_job(url, v):
+def start_job(url, v, src=""):
     """Register a scan and run it in the background. Returns the job id, or None when too many are pending."""
     now = time.time()
     host = (urlparse.urlsplit(url if "://" in url else "https://" + url).hostname or "your site")[:80]
@@ -368,7 +460,7 @@ def start_job(url, v):
         if len(JOBS) >= JOB_MAX:
             return None
         job_id = secrets.token_urlsafe(18)
-        JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "host": host}
+        JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host}
 
     def work():
         job = JOBS.get(job_id)
@@ -381,6 +473,9 @@ def start_job(url, v):
             job.update(state="running", started=time.time())
             report = scanner.scan(url)
             job.update(state="done", report=report)
+            count("scans_done", job["v"], job["src"])
+            if any(f["severity"] != "INFO" for f in report["findings"]):
+                count("results_with_findings", job["v"], job["src"])
             sys.stderr.write(f"scan {host} score={report['score']} {report['seconds']}s\n")
         except scanner.ScanError as exc:
             job.update(state="error", error=str(exc))
@@ -442,9 +537,11 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlparse.urlsplit(self.path)
         path = parts.path
         if path == "/":
-            v = (urlparse.parse_qs(parts.query).get("v") or ["key"])[0]
+            q = urlparse.parse_qs(parts.query)
+            v = (q.get("v") or ["key"])[0]
             n = secrets.token_urlsafe(16)
-            return self.send(200, page(n, v), nonce=n, cache="no-cache")
+            return self.send(200, page(n, v, src=(q.get("utm_source") or q.get("src") or [""])[0]), nonce=n,
+                             cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
         m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status)?", path)
@@ -459,9 +556,10 @@ class Handler(BaseHTTPRequestHandler):
                                                     "Check your app again."), nonce=n)
             state = job_state(job)
             if state == "done":
-                return self.send(200, result_page(job["report"], n), nonce=n)
+                return self.send(200, result_page(job["report"], n, job["v"], job.get("src", "")), nonce=n)
             if state == "error":
-                return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", "")), nonce=n)
+                return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", ""),
+                                           src=job.get("src", "")), nonce=n)
             return self.send(200, progress_page(m.group(1), job, n), nonce=n)
         if path in ("/favicon.svg", "/favicon.ico"):
             return self.send(200, FAVICON, "image/svg+xml", cache="public, max-age=86400")
@@ -482,6 +580,16 @@ class Handler(BaseHTTPRequestHandler):
                                   "Cursor.\n", "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/check":
             return self.send(303, "", extra={"Location": "/"})
+        go = re.fullmatch(r"/go/([a-z-]{1,20})", path)
+        if go and go.group(1) in GO:
+            q = urlparse.parse_qs(parts.query)
+            count("click:" + go.group(1), (q.get("v") or ["key"])[0], (q.get("src") or [""])[0])
+            return self.send(302, "", extra={"Location": GO[go.group(1)]})
+        if path == "/stats":
+            token = (urlparse.parse_qs(parts.query).get("token") or [""])[0]
+            if STATS_TOKEN and secrets.compare_digest(token.encode(), STATS_TOKEN.encode()):
+                return self.send(200, stats_json(), "application/json")
+            return self.send(404, "not found", "text/plain; charset=utf-8")
         n = secrets.token_urlsafe(16)
         return self.send(404, page(n, error="Page not found."), nonce=n)
 
@@ -498,17 +606,20 @@ class Handler(BaseHTTPRequestHandler):
         form = urlparse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
         url = (form.get("url") or [""])[0].strip()
         v = variant((form.get("v") or ["key"])[0])
+        src = clean_src((form.get("src") or [""])[0])
         n = secrets.token_urlsafe(16)
         try:
             scanner.validate(url)
         except scanner.ScanError as exc:
-            return self.send(400, page(n, v, url_value=url, error=str(exc)), nonce=n)
+            return self.send(400, page(n, v, url_value=url, error=str(exc), src=src), nonce=n)
         ok, wait = rate_ok(client_ip(self))
         if not ok:
             return self.send(429, page(n, v, url_value=url, error=f"{RATE_MAX} checks per 10 minutes per visitor. Try again in "
                                                                   f"{max(1, wait // 60)} min."), nonce=n,
                              extra={"Retry-After": str(wait)})
-        job_id = start_job(url, v)
+        job_id = start_job(url, v, src)
+        if job_id:
+            count("scans_started", v, src)
         if not job_id:
             return self.send(503, page(n, v, url_value=url, error="Too many checks right now. Try again in a minute."),
                              nonce=n)
