@@ -372,7 +372,7 @@ SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill 
                "GEO + SEO Audit: also writes your sitemap, JSON-LD and llms.txt"),
 }
 COMPARE = ("What the full skill adds, measured on news.ycombinator.com: this basic check (page code, 1 screen size) "
-           "found 9 phone issues; the full skill rendered the page at phone, tablet and desktop size and found 17 "
+           "flagged 9 spots; the full skill rendered the page at phone, tablet and desktop size and flagged 17 "
            "(22 with minor ones), each marked on a screenshot, then fixes them and re-scores.")
 RUNS = ("Runs inside Claude Code, Cursor or Codex: your AI renders the page, fixes each issue and re-scores until "
         "it passes.")

@@ -38,6 +38,7 @@ lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-l
 lc.AREAS = [("security", "Security"), ("phone", "Phone layout (1 size)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
 lc.MAX_LINKS = 6
+lc.PHONE_PLAIN["images"] = "Some images are missing a size or alt text or are stretched"
 lc.PHONE_PLAIN.setdefault("fixed-width", "Some parts have a fixed width that is wider than a phone screen")
 lc.PHONE_PLAIN.setdefault("type-scale", "Font sizes do not follow a clear scale: the page looks unplanned")
 lc.LINK_DELAY = 0.05
