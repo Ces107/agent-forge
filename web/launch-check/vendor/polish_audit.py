@@ -888,10 +888,15 @@ def build_findings(measures):
             key = ("contrast", c["fgRaw"], "gradient" if c["gradient"] else c["bg"], c["need"])
             prev = groups.get(key)
             worse = prev is not None and c["ratio"] < prev["_ratio"]
-            fgc, bgc = parse_css_color(c["fgRaw"]), parse_css_color(c["bg"])
-            fix_color = suggest_color(fgc, bgc, c["need"])
-            fix_text = ("color: %s -> %s" % (c["fgRaw"], fix_color) if fix_color else
-                        "keep the text colour; background %s -> %s" % (c["bg"], suggest_background(fgc, bgc, c["need"])))
+            raw, eff, bgc = parse_css_color(c["fgRaw"]), parse_css_color(c["fg"]) or parse_css_color(c["fgRaw"]),                 parse_css_color(c["bg"])
+            faded = raw is not None and eff is not None and max(abs(raw[i] - eff[i]) for i in range(3)) > 8
+            fix_color = suggest_color(eff, bgc, c["need"])
+            if fix_color:
+                fix_text = ("color: %s -> %s" % (c["fgRaw"], fix_color) if not faded else
+                            "the text is faded by opacity (%s shows as %s): remove the opacity, or use color: %s"
+                            % (c["fgRaw"], c["fg"], fix_color))
+            else:
+                fix_text = "keep the text colour; background %s -> %s" % (c["bg"], suggest_background(eff, bgc, c["need"]))
             g = _merge(groups, key, "contrast", sev, c["sel"],
                        "contrast %.2f:1 (needs %.1f) %s on %s%s" % (c["ratio"], c["need"], c["fg"], c["bg"], " (gradient, at the text)"
                                                                    if c["gradient"] else (" (page background assumed)" if c.get("assumed") else "")),

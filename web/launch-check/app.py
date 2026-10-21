@@ -647,7 +647,7 @@ def phone_slot(report, job_id, state, stats=None):
     elif state == "done" and counts.get("lower"):
         note = "Your first screen had no problems; this is the part of the page further down where they start."
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
-    wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 20 s)</div>'
+    wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">Rendered in a '

@@ -126,11 +126,14 @@ def jsonld_html(fix_files: dict) -> str:
     return ("\n\n".join(parts) + "\n") if parts else ""
 
 
+NOT_CONTENT = re.compile(r"/(api|auth|admin|login|logout|signin|sign-in|signup|sign-up|account|cart|checkout)(/|$)", re.I)
+
+
 def sitemap_xml(pages: list) -> str:
     urls = []
     for pg in pages:
         u = pg.get("final_url") or pg.get("url")
-        if pg.get("status") == 200 and not pg.get("noindex") and u and u not in urls:
+        if pg.get("status") == 200 and not pg.get("noindex") and u and u not in urls and                 not NOT_CONTENT.search(urlparse.urlsplit(u).path):
             urls.append(u)
     if not urls:
         return ""
@@ -146,11 +149,11 @@ def llms_txt(report: dict, pages: list) -> str:
     seen = set()
     for pg in pages:
         u = pg.get("final_url") or pg.get("url")
-        if pg.get("status") != 200 or pg.get("noindex") or not u or u in seen:
+        if pg.get("status") != 200 or pg.get("noindex") or not u or u in seen or                 NOT_CONTENT.search(urlparse.urlsplit(u).path):
             continue
         seen.add(u)
-        title = re.sub(r"\s+", " ", pg.get("title") or u).strip()[:90]
-        desc = re.sub(r"\s+", " ", pg.get("description") or "").strip()
+        title = re.sub(r"\s+", " ", (pg.get("title") or u).replace("�", "-")).strip()[:90]
+        desc = re.sub(r"\s+", " ", (pg.get("description") or "").replace("�", "-")).strip()
         if desc.endswith(("…", "...")) or len(desc) < 20:
             desc = f"the {title.split('|')[0].strip()} page"
         lines.append(f"- [{title}]({u}): {desc[:200]}")
