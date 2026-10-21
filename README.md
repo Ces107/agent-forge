@@ -21,6 +21,7 @@ npx skills add Ces107/agent-forge                               # any SKILL.md a
 
 | Skill | What it does | Also on |
 |---|---|---|
+| [`done-gate`](skills/done-gate) | **New, free:** a Claude Code hook that blocks "done" until the tests really ran green after the last edit. Checks the commands that ran, not what the agent says | free |
 | [`proven-code-review`](skills/proven-code-review) | Code review that reads beyond the diff, tries to refute every suspicion, and proves each serious bug with a failing test it ran. [Benchmarked in public](bench/code-review) | [Agensi](https://agensi.io/skills/ai-code-review-skill-every-bug-gets-a-failing-test?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
 | [`spec-trace-gate`](skills/spec-trace-gate) | Fails when a spec requirement has no task, a task cites a phantom requirement, or a task names a test that does not exist | [Agensi](https://agensi.io/skills/requirements-traceability-gate-every-spec-has-a-test?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
 | [`verify-gate`](skills/verify-gate) | Runs the real tests, coverage, lint, types and security scan; `VERIFY: PASS` only on all-zero exit codes | [Agensi](https://agensi.io/skills/verify-gate-no-done-without-real-exit-codes?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |

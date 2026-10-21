@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [{ "type": "command", "command": "<PY> \"<DIR>/scripts/done_gate.py\"", "timeout": 30 }]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "<PY> \"<DIR>/scripts/done_gate.py\"", "timeout": 30 }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "<PY> \"<DIR>/scripts/done_gate.py\"", "timeout": 60 }]
+      }
+    ]
+  }
+}
