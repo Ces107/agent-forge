@@ -251,7 +251,7 @@ def run_vendored(script, args, timeout):
 
 
 BROWSER = threading.BoundedSemaphore(1)   # one Chromium at a time (512 MB instance)
-RENDER_BUDGET = 12.0                      # hard wall clock for the phone render
+RENDER_BUDGET = float(os.environ.get("LC_RENDER_BUDGET", "12"))  # hard wall clock for the phone render
 RENDER_ENABLED = os.environ.get("LC_RENDER", "1") != "0"
 
 
@@ -282,8 +282,10 @@ def check_phone_render(url, timeout):
     if RENDER_ENABLED and BROWSER.acquire(timeout=4):
         shots = tempfile.mkdtemp(prefix="lc-shot-")
         try:
+            t_render = time.time()
             report, err = run_vendored("polish_audit.py", [url, "--viewports", "375", "--json", "--shots", shots,
                                                             "--timeout", "9"], min(timeout, RENDER_BUDGET))
+            sys.stderr.write(f"render {time.time() - t_render:.1f}s engine={(report or {}).get('engine')}\n")
             if report and report.get("engine") == "playwright":
                 img = None
                 path = (report.get("screenshots") or {}).get("375")
