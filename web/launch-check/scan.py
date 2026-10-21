@@ -269,14 +269,36 @@ RENDER_ENABLED = RENDER_MODE == "sync"
 ASYNC_BUDGET = 45.0
 
 
+RENDER_QUEUE_MAX = 3
+_queue_lock = threading.Lock()
+_queued = [0]
+
+
+def render_slot_free():
+    """True when a render can start now or wait in the queue (max 3 waiting)."""
+    with _queue_lock:
+        return _queued[0] < RENDER_QUEUE_MAX
+
+
 def render_phone(url, marks, budget=ASYNC_BUDGET):
-    """Background render (after the result is shown): the page at 375 px with ONLY the given problems boxed.
-    marks = {phone key: label}. Returns (JPEG bytes, stats) or None when busy, failed, too slow or nothing matched.
-    stats = {"matched": [labels with a box], "boxed": findings boxed, "total": phone findings in the render}."""
+    """Background render (after the result is shown): the page at 375 px with the given problems boxed.
+    marks = {phone key: label} (may be empty). If none of them matches an element, the render's own top phone
+    problem is boxed instead; with no phone problem at all the page comes back clean.
+    Returns (JPEG bytes, stats) or None when the queue is full, the render failed or took too long.
+    stats = {"mode": "marks"|"fallback"|"clean", "matched": [labels], "boxed": n, "total": n, "fallback": check}."""
     import json as _json
     import shutil
     import tempfile
-    if not marks or not BROWSER.acquire(blocking=False):
+    with _queue_lock:
+        if _queued[0] >= RENDER_QUEUE_MAX:
+            return None
+        _queued[0] += 1
+    try:
+        got = BROWSER.acquire(timeout=120)
+    finally:
+        with _queue_lock:
+            _queued[0] -= 1
+    if not got:
         return None
     shots = tempfile.mkdtemp(prefix="lc-async-")
     try:
@@ -293,8 +315,6 @@ def render_phone(url, marks, budget=ASYNC_BUDGET):
             if os.path.isfile(stats_path):
                 with open(stats_path, encoding="utf-8") as fh:
                     stats = _json.load(fh)
-            if not stats.get("matched"):
-                return None  # no box matched an element: show nothing rather than an unmarked page
             with open(path, "rb") as fh:
                 return fh.read(), stats
         return None
@@ -491,9 +511,8 @@ def scan(raw_url):
     fetcher = BudgetFetcher(deadline)
     resp, chain = fetch_page(fetcher, url)
     if resp.status >= 400:
-        hint = (" The site blocks automated visitors: try your preview or staging address."
-                if resp.status in (401, 403, 429, 503) else "")
-        raise ScanError(f"{lc.clean(url, 120)} answered HTTP {resp.status}.{hint}")
+        raise ScanError(f"We couldn't reach your site (it returned {resp.status} to our checker). Try another URL "
+                        "or check it's public.")
     final = resp.url
     parser = lc.PageParser()
     try:

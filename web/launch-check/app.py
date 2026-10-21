@@ -264,13 +264,71 @@ def count(event, v="dev", src=""):
     with _stats_lock:
         STATS["totals"][event] += 1
         STATS["by"][event][dim] += 1
-    sys.stderr.write(f"stat {event} {dim}\n")
+    sys.stderr.write("LC_EVENT " + json.dumps({"e": event, "v": variant(v), "src": clean_src(src) or "-",
+                                                "t": int(time.time())}, separators=(",", ":")) + "\n")
 
 
 def stats_json():
     with _stats_lock:
         return json.dumps({"since": STATS["since"], "totals": dict(STATS["totals"]),
-                           "by": {k: dict(v) for k, v in STATS["by"].items()}}, indent=1, sort_keys=True)
+                           "by": {k: dict(v) for k, v in STATS["by"].items()},
+                           "history": STATS.get("history", "in-memory since boot only")}, indent=1, sort_keys=True)
+
+
+LEGACY_STAT = re.compile(r"^stat (\S+) v=([^,\s]+),src=(\S+)\s*$")
+
+
+def parse_event(message):
+    """One log line -> (event, v, src) or None. Reads LC_EVENT {json} lines and the older 'stat e v=..,src=..'."""
+    message = message.strip()
+    if message.startswith("LC_EVENT "):
+        try:
+            d = json.loads(message[9:])
+            return str(d["e"])[:40], str(d.get("v", "dev"))[:20], str(d.get("src", "-"))[:32]
+        except (ValueError, KeyError, TypeError):
+            return None
+    m = LEGACY_STAT.match(message)
+    return (m.group(1)[:40], m.group(2)[:20], m.group(3)[:32]) if m else None
+
+
+def rebuild_stats_from_logs(days=7, max_pages=150):
+    """/stats survives deploys: on boot, re-count the event lines this service logged in the last 7 days (Render
+    logs API). Needs RENDER_API_KEY and RENDER_OWNER_ID in the environment; otherwise counters start at zero."""
+    key, owner = os.environ.get("RENDER_API_KEY", ""), os.environ.get("RENDER_OWNER_ID", "")
+    svc = os.environ.get("RENDER_SERVICE_ID", "")
+    if not (key and owner and svc):
+        return
+    import urllib.request
+    end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    found = 0
+    for text in ("LC_EVENT", "stat "):
+        start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400))
+        stop = end
+        for _ in range(max_pages):
+            q = urlparse.urlencode({"ownerId": owner, "resource": svc, "text": text, "startTime": start,
+                                    "endTime": stop, "limit": 100, "direction": "forward"})
+            req = urllib.request.Request("https://api.render.com/v1/logs?" + q,
+                                         headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 - fixed https host
+                    data = json.loads(resp.read(5_000_000))
+            except Exception as exc:  # API down or key missing rights: keep in-memory counting
+                sys.stderr.write(f"stats rebuild stopped: {type(exc).__name__}\n")
+                break
+            with _stats_lock:
+                for log in data.get("logs", []):
+                    ev = parse_event(log.get("message", ""))
+                    if ev and (text == "LC_EVENT") == log.get("message", "").lstrip().startswith("LC_EVENT"):
+                        e, v, src = ev
+                        STATS["totals"][e] += 1
+                        STATS["by"][e][f"v={v},src={src}"] += 1
+                        found += 1
+            if not data.get("hasMore"):
+                break
+            start, stop = data.get("nextStartTime") or start, data.get("nextEndTime") or stop
+    with _stats_lock:
+        STATS["history"] = f"rebuilt from {found} log lines of the last {days} days, then counted live"
+    sys.stderr.write(f"stats rebuilt from {found} log lines\n")
 
 
 ALIASES = {}  # attribution tags that reuse another variant's copy, e.g. {"launch2": "launch"}
@@ -504,12 +562,27 @@ def phone_section(report):
             '</section>')
 
 
+def phone_marks(report):
+    """Which problems to box: the phone items of the free top 3 (numbered like the list); if none, the highest
+    phone item with its number in the full list; if the page has no phone item, nothing (a clean render)."""
+    fix = other_items(report)
+    marks = {f["rule"][6:]: str(i + 1) for i, f in enumerate(fix[:3]) if f["area"] == "phone"}
+    if not marks:
+        first = next(((i, f) for i, f in enumerate(fix) if f["area"] == "phone"), None)
+        if first:
+            marks = {first[1]["rule"][6:]: str(first[0] + 1)}
+    return marks
+
+
 def phone_counts(stats):
     """Real counts from the render: labels that matched an element, spots boxed, spots left."""
     if not stats:
         return {}
     total, boxed = int(stats.get("total", 0)), int(stats.get("boxed", 0))
-    return {"matched": stats.get("matched", []), "boxed": boxed, "more": max(0, total - boxed), "total": total}
+    fb = stats.get("fallback") or ""
+    return {"mode": stats.get("mode", "marks"), "matched": stats.get("matched", []), "boxed": boxed,
+            "more": max(0, total - boxed), "total": total,
+            "fallback": scanner.lc.PHONE_PLAIN.get(fb, fb.replace("-", " ")) if fb else ""}
 
 
 def phone_slot(report, job_id, state, stats=None):
@@ -518,10 +591,16 @@ def phone_slot(report, job_id, state, stats=None):
         return ""
     counts = phone_counts(stats)
     matched = set(counts.get("matched", []))
-    top3 = other_items(report)[:3]
+    fix = other_items(report)
+    labels = set(phone_marks(report).values())
     legend = "".join(f'<li data-l="#{i + 1}"{" hidden" if state == "done" and f"#{i + 1}" not in matched else ""}>'
                      f'<b>#{i + 1}</b> {esc(scanner.lc.short(f["title"], 90))}</li>'
-                     for i, f in enumerate(top3) if f["area"] == "phone")
+                     for i, f in enumerate(fix) if f["area"] == "phone" and str(i + 1) in labels)
+    fb_hidden = "" if state == "done" and counts.get("mode") == "fallback" else " hidden"
+    legend += (f'<li id="lc-fb"{fb_hidden}><b>#!</b> <span>{esc(counts.get("fallback", ""))}</span> (seen in the real '
+               f'render)</li>')
+    clean_hidden = "" if state == "done" and counts.get("mode") == "clean" else " hidden"
+    legend += f'<li id="lc-clean"{clean_hidden}>No phone layout problems found on the first screen.</li>'
     more = counts.get("more", 0)
     more_html = (f'<p class="lc-more" id="lc-more"{"" if more else " hidden"}>+{more} more spot{"s" if more != 1 else ""} '
                  f'on your page</p>')
@@ -530,7 +609,7 @@ def phone_slot(report, job_id, state, stats=None):
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with the top problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">'
-            f'Rendered in a real browser at 375 px. Numbered boxes match the free top-3 list:</p><ul>{legend}</ul>'
+            f'Rendered in a real browser at 375 px. Numbered boxes match the list below:</p><ul>{legend}</ul>'
             f'{more_html}'
             f'<p class="lc-phn">The $19 skill gives your agent every box, plus tablet and desktop, and re-scores after '
             f'each fix.</p></div></div></section>')
@@ -568,11 +647,13 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
 var u=s.getAttribute('data-u'),n=0;function poll(){{n++;fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}})
 .then(function(d){{if(d.state==='done'){{var i=document.getElementById('lc-pi');i.onload=function(){{i.hidden=false;
 var w=document.getElementById('lc-pw');if(w)w.remove();var m=d.matched||[];
+if(d.mode==='fallback'){{var fb=document.getElementById('lc-fb');fb.querySelector('span').textContent=d.fallback;fb.hidden=false;}}
+if(d.mode==='clean'){{document.getElementById('lc-clean').hidden=false;}}
 document.querySelectorAll('#lc-ps li[data-l]').forEach(function(li){{if(m.indexOf(li.getAttribute('data-l'))<0)li.hidden=true;}});
 var mo=document.getElementById('lc-more');if(mo&&d.more>0){{mo.textContent='+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page';mo.hidden=false;}}
 var b=document.getElementById('lc-b1');if(b&&b.getAttribute('data-lead')==='phone'&&d.total>0){{b.textContent='Let my AI fix these '+d.total+' spots \u2014 $19';}}
 }};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
-else if(d.state==='rendering'&&n<40){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
+else if(d.state==='rendering'&&n<75){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
 setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + '</style><meta name="robots" '
@@ -630,15 +711,12 @@ def start_job(url, v, src=""):
         if len(JOBS) >= JOB_MAX:
             return None
         job_id = secrets.token_urlsafe(18)
-        JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host}
+        JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host,
+                        "id": job_id}
 
     def render_later(job, report):
         """After the result is ready: render the page at 375 px with the free top-3 phone problems boxed."""
-        top3 = other_items(report)[:3]
-        marks = {f["rule"][6:]: str(i + 1) for i, f in enumerate(top3) if f["area"] == "phone"}
-        if not marks:
-            job["phone"] = {"state": "none"}
-            return
+        marks = phone_marks(report)
         try:
             out = scanner.render_phone(report["final_url"], marks)
         except Exception:  # never break the result page
@@ -659,7 +737,8 @@ def start_job(url, v, src=""):
         try:
             job.update(state="running", started=time.time())
             report = scanner.scan(url)
-            if scanner.RENDER_MODE == "async" and scanner.BROWSER._value > 0:  # noqa: SLF001 - skip if busy
+            report["job"] = job_id  # stamped: the page refuses to show a report from any other job
+            if scanner.RENDER_MODE == "async" and scanner.render_slot_free():  # queue of 3, else no slot
                 job["phone"] = {"state": "rendering"}
             job.update(state="done", report=report)
             if job.get("phone", {}).get("state") == "rendering":
@@ -740,7 +819,7 @@ class Handler(BaseHTTPRequestHandler):
             job = JOBS.get(m.group(1))
             if m.group(2) == "/phone":
                 ph = (job or {}).get("phone") or {"state": "none"}
-                if ph["state"] == "rendering" and time.time() - job["t"] > 120:
+                if ph["state"] == "rendering" and time.time() - job["t"] > 240:
                     ph = {"state": "none"}
                 return self.send(200, json.dumps({"state": ph["state"], **phone_counts(ph.get("stats"))}),
                                  "application/json")
@@ -757,6 +836,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, page(n, error="This result has expired (results are kept for 10 minutes). "
                                                     "Check your app again."), nonce=n)
             state = job_state(job)
+            if state == "done" and job["report"].get("job") != m.group(1):
+                sys.stderr.write("ISOLATION: report/job mismatch refused\n")
+                return self.send(500, page(n, job["v"], error="Something went wrong. Check your app again."), nonce=n)
             if state == "done":
                 return self.send(200, result_page(job["report"], n, job["v"], job.get("src", ""), m.group(1),
                                                   (job.get("phone") or {}).get("state"),
@@ -839,6 +921,7 @@ def main():
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)  # nosec B104 - Render requires 0.0.0.0:$PORT
     srv.daemon_threads = True
     sys.stderr.write(f"launch-check web on 0.0.0.0:{port}\n")
+    threading.Thread(target=rebuild_stats_from_logs, daemon=True).start()
     srv.serve_forever()
 
 

@@ -8,6 +8,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from urllib import parse as urlparse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
@@ -330,7 +331,111 @@ class BrowserProxy(unittest.TestCase):
         self.assertEqual(app.variant("nonsense"), "dev")
 
 
+class Forbidden(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"blocked"
+        self.send_response(403)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+class JobIsolation(unittest.TestCase):
+    """Regression (2026-10-21): a 403 site must never show another job's report."""
+
+    def test_concurrent_scans_never_cross(self):
+        FakeApp.bundle = "console.log(1)"
+        ok_site, blocked = serve(FakeApp), serve(Forbidden)
+        web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        servers = (ok_site, blocked, web)
+        for s_ in servers:
+            guard._EXTRA_ALLOWED.add(("127.0.0.1", s_.server_port))
+
+        def call(method, path, body=None):
+            c = http.client.HTTPConnection("127.0.0.1", web.server_port, timeout=30)
+            hdr = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "198.51.100.%d" % (
+                hash(body) % 200)} if body else {}
+            c.request(method, path, body=body, headers=hdr)
+            r = c.getresponse()
+            return r.status, r.getheader("Location"), r.read().decode("utf-8", "replace")
+
+        try:
+            ok_url = f"http://127.0.0.1:{ok_site.server_port}/"
+            bad_url = f"http://127.0.0.1:{blocked.server_port}/"
+            jobs = {}
+            for url in (ok_url, bad_url):  # started back to back: they run at the same time
+                st, loc, _ = call("POST", "/check", urlparse.urlencode({"url": url, "v": "dev"}))
+                self.assertEqual(st, 303)
+                jobs[url] = loc
+            for _ in range(120):
+                states = [json_state(call("GET", loc + "/status")[2]) for loc in jobs.values()]
+                if all(s in ("done", "error") for s in states):
+                    break
+                __import__("time").sleep(0.5)
+            st_bad, _, page_bad = call("GET", jobs[bad_url])
+            st_ok, _, page_ok = call("GET", jobs[ok_url])
+            self.assertEqual(st_bad, 422)
+            self.assertIn("We couldn&#x27;t reach your site (it returned 403 to our checker). Try another URL or check "
+                          "it&#x27;s public.", page_bad)
+            self.assertNotIn("Is a secret key showing?", page_bad)
+            self.assertNotIn(str(ok_site.server_port), page_bad.split('name="url"')[0])
+            self.assertEqual(st_ok, 200)
+            self.assertIn(f"Checked:</b> {ok_url}", page_ok)
+            self.assertNotIn(str(blocked.server_port), page_ok)
+        finally:
+            for s_ in servers:
+                guard._EXTRA_ALLOWED.discard(("127.0.0.1", s_.server_port))
+                s_.shutdown()
+
+    def test_report_from_another_job_is_refused(self):
+        job_id = "A" * 24
+        app.JOBS[job_id] = {"state": "done", "t": __import__("time").time(), "url": "https://a.com", "v": "dev",
+                            "src": "", "host": "a.com", "id": job_id,
+                            "report": {**REPORT, "job": "B" * 24}}
+        web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", web.server_port))
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", web.server_port, timeout=10)
+            c.request("GET", "/r/" + job_id)
+            r = c.getresponse()
+            body = r.read().decode()
+            self.assertEqual(r.status, 500)
+            self.assertNotIn("Is a secret key showing?", body)
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", web.server_port))
+            web.shutdown()
+            app.JOBS.pop(job_id, None)
+
+
+def json_state(text):
+    try:
+        return _json.loads(text).get("state")
+    except ValueError:
+        return None
+
+
+class StatsHistory(unittest.TestCase):
+    def test_parse_event_lines(self):
+        self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
+                         ("click:kit", "launch", "x"))
+        self.assertEqual(app.parse_event("stat scans_done v=dev,src=-"), ("scans_done", "dev", "-"))
+        self.assertIsNone(app.parse_event("stats rebuilt from 3 log lines"))
+
+
 class PhoneFunnel(unittest.TestCase):
+    def test_marks_fallback_to_highest_phone_item(self):
+        rep = {**REPORT, "findings": [_f("search", "HIGH", "No sitemap", "search-sitemap-missing"),
+                                      _f("search", "MEDIUM", "No llms", "search-llms"),
+                                      _f("speed", "MEDIUM", "No desc", "desc-missing"),
+                                      _f("phone", "MEDIUM", "Images missing a size", "phone-images")]}
+        self.assertEqual(app.phone_marks(rep), {"images": "4"})  # not in the top 3: still boxed, with its number
+        self.assertEqual(app.phone_marks({**REPORT, "findings": [_f("search", "HIGH", "x", "search-x")]}), {})
+
     def test_invisible_image_issues_never_lead(self):
         fs = [_f("phone", "MEDIUM", "Some images are missing a size or alt text", "phone-images"),
               _f("search", "MEDIUM", "No sitemap", "search-sitemap-missing"),
