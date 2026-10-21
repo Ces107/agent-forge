@@ -21,6 +21,7 @@ npx skills add Ces107/agent-forge                               # any SKILL.md a
 
 | Skill | What it does | Also on |
 |---|---|---|
+| [`launch-check`](skills/launch-check) | **New, free, for founders:** is your AI-built app safe to launch? One command scores security (exposed keys, open database), phone design, Google & AI search and basics, with a "fix this first" list | free |
 | [`done-gate`](skills/done-gate) | **New, free:** a Claude Code hook that blocks "done" until the tests really ran green after the last edit. Checks the commands that ran, not what the agent says | free |
 | [`proven-code-review`](skills/proven-code-review) | Code review that reads beyond the diff, tries to refute every suspicion, and proves each serious bug with a failing test it ran. [Benchmarked in public](bench/code-review) | [Agensi](https://agensi.io/skills/ai-code-review-skill-every-bug-gets-a-failing-test?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
 | [`spec-trace-gate`](skills/spec-trace-gate) | Fails when a spec requirement has no task, a task cites a phantom requirement, or a task names a test that does not exist | [Agensi](https://agensi.io/skills/requirements-traceability-gate-every-spec-has-a-test?utm_source=github&utm_medium=readme&utm_campaign=catalogue) |
