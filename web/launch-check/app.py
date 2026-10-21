@@ -537,8 +537,8 @@ setTimeout(poll,3000);}})();</script>"""
     doc = doc.replace("<h2>All findings</h2>", "<h2>By category</h2>", 1)
     doc = doc.replace('<div class="foot">', '</div></details><div class="foot">', 1)
     doc = doc.replace("A good score is not a security audit.</div>",
-                      "A good score is not a security audit. Web version: phone design uses basic checks (no "
-                      "browser), no open-database test, minor (low) items hidden. Nothing was written to disk: this "
+                      "A good score is not a security audit. Web version: phone findings come from the page code (1 screen size); the phone screenshot is a real "
+                      "browser render of the top 3 only. No open-database test, minor (low) items hidden. Nothing was written to disk: this "
                       "report stays in memory for 10 minutes so the page can load, then it is dropped."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
