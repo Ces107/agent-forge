@@ -98,15 +98,30 @@ def blend(fg, bg):
 
 
 def suggest_color(fg, bg, target):
-    """Closest colour to fg (mixed toward black or white) that reaches the target ratio against bg."""
-    darker = luminance(bg) > 0.18
+    """Closest colour to fg (mixed toward black or white) that reaches the target ratio against bg.
+    web copy (launch-check web, 2026-10-22): text lighter than its background is made lighter, darker text darker
+    (white on purple must never become grey); the other direction is only tried if the first cannot reach AA."""
+    fg = blend(fg, bg) if len(fg) > 3 else fg
+    darker = luminance(fg) < luminance(bg)
     goal = (0, 0, 0) if darker else (255, 255, 255)
-    for direction in (goal, (255, 255, 255) if darker else (0, 0, 0)):
+    for direction in (goal,):
         for step in range(1, 101):
             t = step / 100.0
             cand = [fg[i] * (1 - t) + direction[i] * t for i in range(3)]
             if contrast_ratio(cand, bg) >= target + 0.05:
                 return to_hex(cand)
+    return None  # even pure white/black cannot reach it on this background: change the background instead
+
+
+def suggest_background(fg, bg, target):
+    """Background that lets the text colour reach the target (darker bg for light text, lighter bg for dark text)."""
+    fg = blend(fg, bg) if len(fg) > 3 else fg
+    goal = (0, 0, 0) if luminance(fg) >= luminance(bg) else (255, 255, 255)
+    for step in range(1, 101):
+        t = step / 100.0
+        cand = [bg[i] * (1 - t) + goal[i] * t for i in range(3)]
+        if contrast_ratio(fg, cand) >= target + 0.05:
+            return to_hex(cand)
     return to_hex(goal)
 
 
@@ -873,11 +888,14 @@ def build_findings(measures):
             key = ("contrast", c["fgRaw"], "gradient" if c["gradient"] else c["bg"], c["need"])
             prev = groups.get(key)
             worse = prev is not None and c["ratio"] < prev["_ratio"]
-            fix_color = suggest_color(parse_css_color(c["fgRaw"]), parse_css_color(c["bg"]), c["need"])
+            fgc, bgc = parse_css_color(c["fgRaw"]), parse_css_color(c["bg"])
+            fix_color = suggest_color(fgc, bgc, c["need"])
+            fix_text = ("color: %s -> %s" % (c["fgRaw"], fix_color) if fix_color else
+                        "keep the text colour; background %s -> %s" % (c["bg"], suggest_background(fgc, bgc, c["need"])))
             g = _merge(groups, key, "contrast", sev, c["sel"],
                        "contrast %.2f:1 (needs %.1f) %s on %s%s" % (c["ratio"], c["need"], c["fg"], c["bg"], " (gradient, at the text)"
                                                                    if c["gradient"] else (" (page background assumed)" if c.get("assumed") else "")),
-                       "color: %s -> %s%s" % (c["fgRaw"], fix_color, " (or darken the background)" if c["gradient"] else ""),
+                       fix_text + (" (gradient: check the lightest part)" if c["gradient"] else ""),
                        4 if sev == "HIGH" else 3, w, c["box"], worse)
             g["_ratio"] = min(g.get("_ratio", 99), c["ratio"])
             g.setdefault("_sels", [])

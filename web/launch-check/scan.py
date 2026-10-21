@@ -305,7 +305,7 @@ def render_phone(url, marks, budget=ASYNC_BUDGET):
         t0 = time.time()
         report, err = run_vendored("polish_audit.py", [url, "--viewports", "375", "--json", "--shots", shots,
                                                         "--timeout", "25"], budget,
-                                   extra_env={"LC_MARKS": _json.dumps(marks)})
+                                   extra_env={"LC_MARKS": _json.dumps(list(marks))})
         sys.stderr.write(f"async render {time.time() - t0:.1f}s engine={(report or {}).get('engine')}\n")
         path = ((report or {}).get("screenshots") or {}).get("375")
         if report and report.get("engine") == "playwright" and path and os.path.isfile(path) \
@@ -533,11 +533,15 @@ def is_key_item(f):
 def things_to_fix(findings):
     """THE count used everywhere on the result page: HIGH + MEDIUM, keys excluded (they have their own section),
     phone layout and Google/ChatGPT first, security headers last."""
-    items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)]
+    items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)
+             and f["rule"] not in STYLE_RULES]
     return sorted(items, key=lambda f: (f["rule"] in DEMOTED, FIX_ORDER.index(f["area"]), lc.SEV_ORDER[f["severity"]]))
 
 
 DEMOTED = {"phone-images"}  # missing alt/size is real but invisible: never ahead of visible problems
+# Lint-style notes (spacing grid, number of font sizes / colours, line length): never counted as "things to fix";
+# they appear only as collapsed "style notes" in the paid pack.
+STYLE_RULES = {"phone-spacing", "phone-type-sprawl", "phone-type-scale", "phone-palette", "phone-line-length"}
 
 
 def area_note(key, fix, skipped):
@@ -561,6 +565,44 @@ def plain(text):
     text = "; ".join(part for part in text.split("; ") if not FLAG.search(part))
     text = re.sub(r"[^.;]*--[a-z][a-z0-9-]+[^.;]*[.;]?", "", text).strip()
     return text if text.endswith((".", "!", "?", ")")) or not text else text + "."
+
+
+class _TextParser(lc.HTMLParser):
+    """The home page's first h1 and first real paragraph (for a meta description written as a sentence)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.h1, self.p, self._in, self._buf, self._skip = "", "", None, [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "noscript"):
+            self._skip += 1
+        elif tag in ("h1", "p") and self._in is None and not (tag == "h1" and self.h1) and not (tag == "p" and self.p):
+            self._in, self._buf = tag, []
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "noscript"):
+            self._skip = max(0, self._skip - 1)
+        elif tag == self._in:
+            text = re.sub(r"\s+", " ", "".join(self._buf)).strip()
+            if tag == "h1":
+                self.h1 = text[:200]
+            elif len(text) >= 40:
+                self.p = text[:600]
+            self._in = None
+
+    def handle_data(self, data):
+        if self._in and not self._skip:
+            self._buf.append(data)
+
+
+def page_text(body):
+    tp = _TextParser()
+    try:
+        tp.feed(lc.decode(body[:1_500_000]))
+    except Exception:  # malformed HTML: keep what was parsed
+        pass
+    return {"h1": lc.clean(tp.h1, 200), "p": lc.clean(tp.p, 600)}
 
 
 def scan(raw_url):
@@ -655,6 +697,7 @@ def scan(raw_url):
                   "search": {k: v for k, v in search_info.items() if k != "fix_files"}},
         "fix_files": search_info.get("fix_files", {}),
         "pack_url": search_info.get("pack_url") or lc.clean(final, 300),
+        "page_text": page_text(resp.body),
         "page_meta": {"title": lc.clean(parser.title.strip(), 200),
                       "description": lc.clean(parser.meta.get("description", "").strip(), 400),
                       "og": {k: lc.clean(v, 400) for k, v in parser.meta.items() if k.startswith(("og:", "twitter:"))},

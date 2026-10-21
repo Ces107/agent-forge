@@ -61,17 +61,41 @@ def _attr(value: str) -> str:
     return esc(re.sub(r"\s+", " ", value or "").strip())
 
 
+def sentence_description(report: dict) -> str:
+    """120-160 characters when possible, built from whole sentences of the page (h1 + first paragraph)."""
+    pm, pt = report.get("page_meta") or {}, report.get("page_text") or {}
+    current = (pm.get("description") or "").strip()
+    if 70 <= len(current) <= 160 and not current.endswith(("…", "...")):
+        return current
+    para = re.sub(r"\s+", " ", (pt.get("p") or "")).strip()
+    out = ""
+    for sent in re.split(r"(?<=[.!?])\s+", para):
+        sent = sent.strip()
+        if not sent:
+            continue
+        if len(out) + len(sent) + 1 > 160:
+            break
+        out = (out + " " + sent).strip()
+    h1 = (pt.get("h1") or pm.get("title") or "").strip().rstrip(".")
+    if len(out) < 60 and h1:
+        lead = h1 + "."
+        out = (lead + " " + out).strip() if out and len(lead) + len(out) + 1 <= 160 else (out or lead)
+    if not out.endswith((".", "!", "?")) and out:
+        out += "."
+    return out
+
+
 def meta_tags_html(report: dict) -> str:
     pm = report.get("page_meta") or {}
     url = report.get("pack_url") or report.get("final_url", "")
     host = urlparse.urlsplit(url).hostname or url
     title = pm.get("title") or host
-    desc = pm.get("description") or pm.get("summary") or ""
+    desc = sentence_description(report)
     og = pm.get("og") or {}
     image = og.get("og:image") or ""
     lines = [f"<!-- Launch Check Fix Pack for {url}: paste inside <head> on the home page, replacing the old tags. -->",
              f"<title>{_attr(title)}</title>",
-             f'<meta name="description" content="{_attr(desc) or "WRITE ONE SENTENCE (120-160 CHARACTERS) THAT SAYS WHAT YOUR PRODUCT DOES"}">',
+             f'<meta name="description" content="{_attr(desc)}">',
              f'<link rel="canonical" href="{_attr(url)}">',
              f'<meta property="og:type" content="website">',
              f'<meta property="og:url" content="{_attr(url)}">',
@@ -102,9 +126,44 @@ def jsonld_html(fix_files: dict) -> str:
     return ("\n\n".join(parts) + "\n") if parts else ""
 
 
+def sitemap_xml(pages: list) -> str:
+    urls = []
+    for pg in pages:
+        u = pg.get("final_url") or pg.get("url")
+        if pg.get("status") == 200 and not pg.get("noindex") and u and u not in urls:
+            urls.append(u)
+    if not urls:
+        return ""
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls) + "\n</urlset>\n")
+
+
+def llms_txt(report: dict, pages: list) -> str:
+    pm = report.get("page_meta") or {}
+    name = (pm.get("og") or {}).get("og:site_name") or (pm.get("title") or "").split("|")[0].split(" - ")[0].strip() \
+        or urlparse.urlsplit(report.get("pack_url") or report["final_url"]).hostname
+    lines = [f"# {name}", "", f"> {sentence_description(report)}", "", "## Main pages", ""]
+    seen = set()
+    for pg in pages:
+        u = pg.get("final_url") or pg.get("url")
+        if pg.get("status") != 200 or pg.get("noindex") or not u or u in seen:
+            continue
+        seen.add(u)
+        title = re.sub(r"\s+", " ", pg.get("title") or u).strip()[:90]
+        desc = re.sub(r"\s+", " ", pg.get("description") or "").strip()
+        if desc.endswith(("…", "...")) or len(desc) < 20:
+            desc = f"the {title.split('|')[0].strip()} page"
+        lines.append(f"- [{title}]({u}): {desc[:200]}")
+    return "\n".join(lines) + "\n"
+
+
 def pack_files(report: dict) -> dict:
     """Ordered {file name: text} for this site (only files that change something)."""
     ff = report.get("fix_files") or {}
+    pages = report.get("crawl_pages") or []
+    if pages:  # paid pack: the deep crawl's own sitemap and llms.txt
+        sm = sitemap_xml(pages)
+        ff = {**ff, **({"sitemap.xml": sm} if sm else {}), "llms.txt": llms_txt(report, pages)}
     ff = {k: v.replace("geo-seo-audit", "Launch Check") for k, v in ff.items()}
     files = {}
     for name in ("sitemap.xml", "robots.txt", "llms.txt"):
@@ -114,8 +173,6 @@ def pack_files(report: dict) -> dict:
     if jl:
         files["json-ld.html"] = jl
     files["meta-tags.html"] = meta_tags_html(report)
-    if ff.get("meta-fixes.csv"):
-        files["meta-fixes.csv"] = ff["meta-fixes.csv"]
     return files
 
 
@@ -125,7 +182,6 @@ FILE_ABOUT = {
     "llms.txt": "a short map of your site for AI assistants",
     "json-ld.html": "structured data (Organization, WebSite, pages) so Google and AI know who you are",
     "meta-tags.html": "title, description, Open Graph and Twitter card for your home page",
-    "meta-fixes.csv": "titles and descriptions to rewrite, page by page",
 }
 
 README = """LAUNCH CHECK FIX PACK for {url}
@@ -158,12 +214,14 @@ def full_steps(report: dict, files: dict) -> list:
     steps = []
     keys = [f for f in report["findings"] if scanner.is_key_item(f)]
     rest = scanner.things_to_fix(report["findings"])
-    low = [f for f in report["findings"] if f["severity"] == "LOW" and not scanner.is_key_item(f)]
+    low = [f for f in report["findings"] if f["severity"] == "LOW" and not scanner.is_key_item(f)
+           and f["rule"] not in scanner.STYLE_RULES]
     for f in keys + rest + low:
         where = f" (on {f['where']})" if f.get("where") and f["area"] != "phone" else ""
         steps.append(f"{scanner.lc.short(f['title'], 160)}{where}. {f['fix']}".strip())
     for name in files:
         steps.append(f"Add the attached {name}: {FILE_ABOUT.get(name, '')}.")
+    steps = [s for s in steps if not any(r in s for r in ("4/8 px", "font sizes", "distinct colours", "near-duplicate"))]
     return steps
 
 
@@ -208,6 +266,16 @@ def render_sizes(url: str, budget: float = 150.0):
                                                                  "--json", "--shots", shots, "--timeout", "25"], budget)
         sys.stderr.write(f"pack render {time.time() - t0:.1f}s engine={(report or {}).get('engine')}\n")
         out = {}
+        try:
+            with open(os.path.join(shots, "marks-375.json"), encoding="utf-8") as fh:
+                style = json.load(fh).get("style", [])
+        except (OSError, ValueError):
+            style = []
+        if report:
+            report["style_notes"] = style
+            report["findings"] = [f for f in report.get("findings", [])
+                                  if f.get("check") not in ("spacing", "type-sprawl", "type-scale", "palette",
+                                                            "line-length")]
         for w in RENDER_WIDTHS:
             path = ((report or {}).get("screenshots") or {}).get(str(w))
             if path and os.path.isfile(path) and os.path.getsize(path) < 2_500_000:
@@ -219,7 +287,26 @@ def render_sizes(url: str, budget: float = 150.0):
         shutil.rmtree(shots, ignore_errors=True)
 
 
+def deep_crawl(report: dict) -> dict:
+    """Paid pack: crawl up to 20 pages and regenerate the files from that crawl."""
+    if report.get("pack_url") and report.get("pack_url") != report.get("final_url"):
+        return report  # the hosted demo page: its files already come from the stand-alone audit
+    emit = tempfile.mkdtemp(prefix="lc-deep-")
+    try:
+        geo, _err = scanner.run_vendored("geo_audit.py", [report["final_url"], "--json", "--max-pages", "20", "--delay",
+                                                          "0.2", "--link-budget", "10", "--timeout", "8",
+                                                          "--emit-fixes", emit, "--force"], 90)
+        if not geo:
+            return report
+        return {**report, "fix_files": scanner.read_fix_files(emit) or report.get("fix_files", {}),
+                "crawl_pages": [{k: p.get(k) for k in ("url", "final_url", "status", "title", "description", "noindex")}
+                                for p in geo.get("pages", [])][:20]}
+    finally:
+        shutil.rmtree(emit, ignore_errors=True)
+
+
 def build_pack(report: dict, rescan_url: str) -> dict:
+    report = deep_crawl(report)
     files = pack_files(report)
     steps = full_steps(report, files)
     shots, render = render_sizes(report["final_url"])
@@ -236,7 +323,8 @@ def build_pack(report: dict, rescan_url: str) -> dict:
             z.writestr(name, text)
         for w, jpg in shots.items():
             z.writestr("screenshots/" + SHOT_NAMES[w], jpg)
-    return {"state": "done", "files": files, "steps": steps, "shots": shots,
+    return {"state": "done", "files": files, "steps": steps, "shots": shots, "report": report,
+            "style": (render or {}).get("style_notes", []),
             "render": render, "zip": buf.getvalue(), "zip_name": f"fix-pack-{host}.zip", "built": time.time(),
             "zip_listing": sorted(["README.txt", "FIX-PROMPT.txt", "FINDINGS.txt"] + list(files)
                                   + ["screenshots/" + SHOT_NAMES[w] for w in shots])}

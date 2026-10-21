@@ -9,6 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt \
  && python -m playwright install --with-deps --only-shell chromium \
+ && apt-get install -y --no-install-recommends fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/* /root/.cache
 
 COPY . .

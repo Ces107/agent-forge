@@ -111,6 +111,11 @@ def pack_page(report, pack, scan_id, token, nonce, demo):
     prompt_card = (f'<div class="card prompt"><h2>The full fix prompt <span style="font-weight:500;color:#64748b">for '
                    f'Lovable, Bolt, Cursor or Claude Code ({len(pack["steps"])} steps)</span></h2><button class="cp" '
                    f'type="button" data-copy="pp">Copy prompt</button><pre id="pp">{esc(prompt)}</pre></div>')
+    report = pack.get("report") or report
+    style = pack.get("style") or []
+    style_card = (f'<div class="card"><details><summary><b>Style notes ({len(style)})</b> <span style="color:#64748b">'
+                  f'spacing grid, font sizes, colours, line length: polish, not problems</span></summary><ul>'
+                  + "".join(f"<li>{esc(x)}</li>" for x in style) + '</ul></details></div>') if style else ""
     rows = "".join(f'<tr><td><span class="sev {f["severity"]}">{f["severity"]}</span></td><td><b>{esc(f["title"])}</b>'
                    + (f'<br><small>{esc(f["where"])}</small>' if f.get("where") else "") + f'<br>{esc(f["fix"])}</td></tr>'
                    for f in report["findings"] if f["severity"] != "INFO")
@@ -119,5 +124,5 @@ def pack_page(report, pack, scan_id, token, nonce, demo):
                                    score=report["score"], listing=listing, rescan="the Re-scan button on this page")
     body = (top + shots + f'<div class="card"><h2>Your files</h2>{files}</div>' + prompt_card
             + f'<div class="card"><h2>All findings with fixes</h2><table>{rows}</table></div>'
-            + f'<div class="card"><h2>Where each file goes</h2><div class="readme">{esc(readme)}</div></div>')
+            + style_card + f'<div class="card"><h2>Where each file goes</h2><div class="readme">{esc(readme)}</div></div>')
     return _doc(f"Fix Pack for {host} | Launch Check", body, nonce)

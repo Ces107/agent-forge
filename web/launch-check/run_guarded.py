@@ -46,79 +46,162 @@ CHROMIUM_ARGS = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--
                  "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--js-flags=--max-old-space-size=192"]
 
 
+STYLE_CHECKS = {"spacing", "type-sprawl", "type-scale", "palette", "line-length"}  # style notes, not spots
+BLOCK_HOSTS = ("googletagmanager.com", "google-analytics.com", "doubleclick.net", "segment.com", "segment.io",
+               "hotjar.com", "intercom.io", "intercomcdn.com", "facebook.net", "clarity.ms", "mixpanel.com",
+               "amplitude.com", "posthog.com", "plausible.io/js", "fullstory.com", "logrocket.com", "sentry-cdn.com")
+
+DISMISS_JS = r"""() => {
+  const sels = ['#onetrust-accept-btn-handler', '#didomi-notice-agree-button', '.fc-cta-consent', '.fc-button.fc-cta-consent',
+    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', '#CybotCookiebotDialogBodyButtonAccept',
+    '[data-testid="uc-accept-all-button"]', '.cc-allow', '.cc-dismiss', '#truste-consent-button', '#cookie-accept',
+    '.cookie-accept', '#accept-cookies', '.js-accept-cookies', 'button[data-cookiebanner="accept_button"]',
+    '.cky-btn-accept', '#wt-cli-accept-all-btn', '.cmplz-accept', '#hs-eu-confirmation-button'];
+  let n = 0;
+  for (const s of sels) { const e = document.querySelector(s); if (e) { try { e.click(); n++; } catch (_) {} } }
+  if (!n) {
+    const re = /^(accept( all)?( cookies)?|accept and close|agree|i agree|ok|okay|got it|allow( all)?( cookies)?|aceptar( todo| todas)?|accepter( tout)?|tout accepter|akzeptieren|alle akzeptieren|accetta( tutto)?|aceitar)$/i;
+    const cands = [...document.querySelectorAll('button,[role=button],a,input[type=button],input[type=submit]')]
+      .filter(b => re.test(((b.innerText || b.value || '') + '').trim()));
+    for (const b of cands.slice(0, 3)) {
+      const box = b.closest('[id*=cookie i],[class*=cookie i],[id*=consent i],[class*=consent i],[id*=gdpr i],[class*=gdpr i],[class*=cmp],[id*=cmp],[role=dialog],[aria-modal=true],[class*=banner i]');
+      if (box) { try { b.click(); n++; } catch (_) {} }
+    }
+  }
+  return n;
+}"""
+
+BOTCHECK_JS = r"""() => {
+  const t = (document.title || '') + ' ' + (document.body ? document.body.innerText.slice(0, 3000) : '');
+  if (/just a moment|performing security verification|checking your browser|verify you are human|attention required|ddos protection|are you a robot|please enable cookies and reload|access denied|request blocked/i.test(t)) return true;
+  return !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,.cf-turnstile,iframe[src*="challenges.cloudflare.com"],iframe[src*="captcha"],#px-captcha,.g-recaptcha,.h-captcha');
+}"""
+
+
 def _browser_through_guard(module):
-    """Phone render: headless Chromium whose every request goes through browser_proxy (same SSRF rules as the
-    fetcher), and one JPEG screenshot of the first 1600 px instead of a 5000 px PNG."""
+    """Renders through browser_proxy (same SSRF rules as the fetcher). Cookie banners are dismissed before the
+    screenshot, bot-check pages are detected (never boxed), fonts/video/analytics are not loaded, and the free
+    phone render is one viewport tall."""
     import browser_proxy
     _srv, port = browser_proxy.start()
+
+    import json
+    import os
+    import re
+    web = "LC_MARKS" in os.environ  # free phone render: box the listed problems, then fill to at least 2
+    order = json.loads(os.environ.get("LC_MARKS") or "[]")
+    if isinstance(order, dict):  # older {key: label} form
+        order = sorted(order, key=lambda k: order[k])
+    state = {"botcheck": False}
+    clip_h = 812 if web else 1600
 
     def launch(pw):
         return pw.chromium.launch(headless=True, args=CHROMIUM_ARGS, chromium_sandbox=False,
                                   proxy={"server": f"http://127.0.0.1:{port}", "bypass": "<-loopback>"})
 
-    import json
-    import os
-    import re
-    web = "LC_MARKS" in os.environ  # web result: box only the problems the result lists
-    only = json.loads(os.environ.get("LC_MARKS") or "{}")  # {phone key: label}
+    def key_of(f):
+        if f["check"] == "images":
+            m = re.search(r"stretched (\d+)%", f.get("detail", ""))
+            return "images-stretched" if m and int(m.group(1)) > 10 else "images"
+        return f["check"]
+
+    def boxes_in_view(f, width, cap=3, y0=0):
+        return [bx for bx in f.get("boxes", {}).get(width, [])
+                if bx and len(bx) == 4 and bx[2] >= 2 and bx[3] >= 2 and y0 <= bx[1] < y0 + clip_h - 12
+                and bx[0] < width][:cap]
+
+    def visible_spot(f):
+        return key_of(f) != "images"
+
+    def best_window(spots, width, doc_h):
+        """The first screen if it shows at least 2 spots; otherwise the screen-tall stretch of the page that does."""
+        def count(y0):  # distinct kinds of visible problems in this stretch of the page
+            return len({key_of(f) for f in spots if visible_spot(f) and boxes_in_view(f, width, 1, y0)})
+        if count(0) >= 2:
+            return 0
+        best, best_n = 0, count(0)
+        for f in spots:
+            if not visible_spot(f):
+                continue
+            for bx in f.get("boxes", {}).get(width, [])[:3]:
+                if not bx or len(bx) != 4:
+                    continue
+                y0 = int(max(0, min(bx[1] - 140, max(0, doc_h - clip_h))))
+                n = count(y0)
+                if n > best_n:
+                    best, best_n = y0, n
+                if best_n >= 3:
+                    return best
+        return best
 
     def annotate(pages, findings, shots_dir, slug):
         out = {}
         shots_dir.mkdir(parents=True, exist_ok=True)
+        spots = [f for f in findings if f["check"] not in STYLE_CHECKS]
         for width, page in pages.items():
             marks = []
-            per_label = {}
+            legend = []
             boxed = 0
-            for f in findings:
-                key = f["check"]
-                if key == "images":
-                    m = re.search(r"stretched (\d+)%", f.get("detail", ""))
-                    key = "images-stretched" if m and int(m.group(1)) > 10 else "images"
-                if web and key not in only:
-                    continue
-                color = "#dc2626" if web else {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
-                label = ("#" + only[key]) if web else "#%d" % f["rank"]
-                drew = False
-                for bx in f.get("boxes", {}).get(width, [])[:4]:
-                    if web and per_label.get(label, 0) >= 3:
+            if state["botcheck"]:
+                mode = "botcheck"
+            elif web:
+                doc_h = page.evaluate("() => document.documentElement.scrollHeight")
+                y0 = best_window(spots, width, doc_h)
+                used = set()
+                for key in order:  # the free list's phone problems first, in its order
+                    fs = [f for f in spots if key_of(f) == key]
+                    got = [bx for f in fs for bx in boxes_in_view(f, width, 3, y0)][:3]
+                    if got:
+                        n = len(legend) + 1
+                        marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
+                        legend.append({"n": n, "key": key, "detail": fs[0].get("detail", "")})
+                        boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
+                        used.add(key)
+                for f in spots:  # then the render's most important visible spots, until at least 2 are boxed
+                    if len(legend) >= 2:
                         break
-                    if not bx or bx[1] > 1560 or bx[2] < 2 or bx[3] < 2:
-                        continue  # outside the screenshot or not a real element
-                    per_label[label] = per_label.get(label, 0) + 1
-                    marks.append({"box": bx, "label": label, "color": color})
-                    drew = True
-                boxed += drew
-            mode, fallback = "marks", ""
-            if web and not per_label:  # nothing listed matched: box the render's own top phone problem, if any
-                for f in findings:
-                    if f["severity"] not in ("HIGH", "MED"):
+                    key = key_of(f)
+                    if key in used or key == "images":
                         continue
-                    if f["check"] == "images" and not re.search(r"stretched (\d{2,})%", f.get("detail", "")):
-                        continue  # missing alt/size is not visible on a screenshot
-                    inview = [bx for bx in f.get("boxes", {}).get(width, [])[:3]
-                              if bx and bx[1] <= 1560 and bx[2] >= 2 and bx[3] >= 2]
-                    if inview:
-                        for bx in inview:
-                            marks.append({"box": bx, "label": "#!", "color": "#dc2626"})
-                        per_label["#!"] = len(inview)
-                        boxed, mode, fallback = 1, "fallback", f["check"]
-                        break
-                else:
-                    mode = "clean"
+                    got = boxes_in_view(f, width, 3, y0)
+                    if got:
+                        n = len(legend) + 1
+                        marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
+                        legend.append({"n": n, "key": key, "detail": f.get("detail", "")})
+                        boxed += 1
+                        used.add(key)
+                mode = "marks" if legend else ("clean" if not spots else "unboxed")
+            else:
+                mode = "all"
+                for f in spots:
+                    color = {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
+                    for bx in boxes_in_view(f, width, cap=4):
+                        marks.append({"box": bx, "label": "#%d" % f["rank"], "color": color})
+            if not web or state["botcheck"]:
+                y0 = 0
+            (shots_dir / ("marks-%d.json" % width)).write_text(json.dumps({
+                "mode": mode, "legend": legend, "boxed": boxed, "total": len(spots), "y0": y0,
+                "style": [f.get("detail", "") for f in findings if f["check"] in STYLE_CHECKS][:20]}), encoding="utf-8")
             if web:
-                (shots_dir / "marks.json").write_text(json.dumps({
-                    "mode": mode, "fallback": fallback, "matched": sorted(per_label), "boxed": boxed,
-                    "total": len(findings)}), encoding="utf-8")
-            page.evaluate(module.ANNOTATE_JS, marks)
+                (shots_dir / "marks.json").write_text((shots_dir / ("marks-%d.json" % width)).read_text(encoding="utf-8"),
+                                                      encoding="utf-8")
+            if marks:
+                page.evaluate(module.ANNOTATE_JS, marks)
             path = shots_dir / ("%s-%d.jpg" % (slug, width))
-            page.screenshot(path=str(path), type="jpeg", quality=62,
-                            clip={"x": 0, "y": 0, "width": width, "height": 1600}, full_page=True)
+            page.screenshot(path=str(path), type="jpeg", quality=64,
+                            clip={"x": 0, "y": y0, "width": width, "height": clip_h}, full_page=True)
             out[width] = str(path)
         return out
 
+    def route(r):
+        req = r.request
+        if req.resource_type in ("media", "websocket", "eventsource", "manifest", "texttrack") or \
+                any(h in req.url for h in BLOCK_HOSTS):
+            return r.abort()
+        return r.continue_()
+
     def measure_browser(target, viewports, timeout, offline, shots_dir, max_elements=3000):
-        """Faster single-size render for a small server CPU: DOM ready + a short settle, no network-idle wait,
-        no video/audio/websockets, fewer elements measured."""
+        """Fast render for a small server CPU: DOM ready, load (max 1.5 s), cookie banner dismissed, short settle."""
         url, _kind = module.to_url(target)
         pw = module.load_playwright()().start()
         browser = launch(pw)
@@ -126,18 +209,25 @@ def _browser_through_guard(module):
             results, pages = {}, {}
             for width in viewports:
                 mobile = width < 1024
-                ctx = browser.new_context(viewport={"width": width, "height": 800 if mobile else 900},
+                ctx = browser.new_context(viewport={"width": width, "height": 812 if mobile else 900},
                                           is_mobile=mobile, has_touch=mobile, device_scale_factor=1)
-                ctx.route("**/*", lambda route: route.abort() if route.request.resource_type in (
-                    "media", "websocket", "eventsource", "manifest", "texttrack") else route.continue_())
+                ctx.route("**/*", route)
                 ctx.add_init_script(module.INIT_JS)
                 page = ctx.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
                 try:
-                    page.wait_for_load_state("load", timeout=2500)
+                    page.wait_for_load_state("load", timeout=1500)
                 except Exception:  # slow images: measure what is there
                     pass
-                page.wait_for_timeout(300)
+                try:
+                    if page.evaluate(BOTCHECK_JS):
+                        state["botcheck"] = True
+                    elif page.evaluate(DISMISS_JS):
+                        page.wait_for_timeout(500)
+                except Exception:  # page navigated while we looked
+                    pass
+                page.evaluate("() => window.scrollTo(0, 0)")
+                page.wait_for_timeout(250)
                 data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": mobile})
                 data["viewport"] = width
                 results[width] = data

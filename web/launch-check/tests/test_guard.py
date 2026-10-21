@@ -426,7 +426,10 @@ class FixPack(unittest.TestCase):
            "fix_files": {"llms.txt": "# a\n\n> Makes things\n", "robots.txt": "User-agent: *\nAllow: /\n",
                          "jsonld/home.html": '<script type="application/ld+json">{"@type":"Organization"}</script>',
                          "jsonld/manifest.json": '[{"url":"https://a.com/","file":"jsonld/home.html","types":["Organization"]}]'},
-           "page_meta": {"title": "A <b>", "description": "", "og": {}, "summary": "Makes things"}}
+           "page_meta": {"title": "A <b>", "description": "", "og": {}, "summary": "Makes things"},
+           "page_text": {"h1": "Automate your workflows",
+                         "p": "FlowPilot connects your tools. It runs every automation with retries and an audit trail. "
+                              "Teams of every size use it to stop doing busywork by hand, every single day of the week."}}
 
     def test_files_and_zip(self):
         import fixpack
@@ -444,7 +447,9 @@ class FixPack(unittest.TestCase):
             self.assertIn(want, names)
         meta = pack["files"]["meta-tags.html"]
         self.assertIn("<title>A &lt;b&gt;</title>", meta)              # escaped
-        self.assertIn('content="Makes things"', meta)                  # description drafted from the site summary
+        self.assertIn('content="FlowPilot connects your tools. It runs every automation with retries and an audit trail."',
+                      meta)                                           # whole sentences from the page, no ellipsis
+        self.assertNotIn("…", meta)
         self.assertEqual(pack["zip_name"], "fix-pack-a.com.zip")
 
     def test_tokens_and_webhook(self):
@@ -484,6 +489,40 @@ class FixPack(unittest.TestCase):
             web.shutdown()
 
 
+class Round22(unittest.TestCase):
+    def test_contrast_fix_direction(self):
+        sys.path.insert(0, str(HERE / "vendor"))
+        import polish_audit as pa
+        self.assertIsNone(pa.suggest_color([255, 255, 255, 1], [139, 92, 246], 4.5))   # white on purple: change bg
+        bg = pa.parse_css_color(pa.suggest_background([255, 255, 255, 1], [139, 92, 246], 4.5))
+        self.assertGreaterEqual(pa.contrast_ratio([255, 255, 255], bg), 4.5)
+        light = pa.parse_css_color(pa.suggest_color([134, 126, 142, 1], [17, 17, 22], 4.5))
+        self.assertGreater(pa.luminance(light), pa.luminance([134, 126, 142]))         # dark bg: lighten
+        self.assertGreaterEqual(pa.contrast_ratio(light, [17, 17, 22]), 4.5)
+
+    def test_style_lint_not_counted(self):
+        fs = [_f("phone", "MEDIUM", "Spacing off grid", "phone-spacing"), _f("phone", "MEDIUM", "Too many colours",
+              "phone-palette"), _f("phone", "MEDIUM", "Some text is hard to read", "phone-contrast")]
+        self.assertEqual([f["rule"] for f in scan.things_to_fix(fs)], ["phone-contrast"])
+
+    def test_codes_and_lasting_result(self):
+        code = app.mint_code()
+        self.assertTrue(app.use_code(code, "S" * 24))
+        self.assertTrue(app.use_code(code, "S" * 24))      # same pack again: fine
+        self.assertFalse(app.use_code(code, "T" * 24))     # one use only
+        sm = {"id": "L" * 24, "url": "https://a.com", "final": "https://a.com/", "t": __import__("time").time(),
+              "score": 71, "key": "ok", "keys": [], "top3": [{"t": "Some text is hard to read", "a": "phone",
+                                                                  "r": "phone-contrast"}], "n": 4, "v": "dev"}
+        html_ = app.lasting_page(sm, "n")
+        self.assertIn("Scan a.com again", html_)
+        self.assertIn("Some text is hard to read", html_)
+        self.assertNotIn("agensi", html_.lower())
+
+    def test_share_png(self):
+        png = app.share_png("a.com", 54, 91)
+        self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
@@ -516,11 +555,19 @@ class PhoneFunnel(unittest.TestCase):
     def test_slot_uses_real_counts(self):
         rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some text is hard to read", "phone-contrast"),
                                       _f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
-        stats = {"matched": ["#1"], "boxed": 4, "total": 15}
+        stats = {"mode": "marks", "legend": [{"n": 1, "key": "contrast"}, {"n": 2, "key": "tap-target"}],
+                 "boxed": 4, "total": 15}
         html_ = app.phone_slot(rep, "J" * 24, "done", stats)
         self.assertIn("+11 more spots on your page", html_)
-        self.assertIn('data-l="#2" hidden', html_)          # #2 matched no element: not listed
-        self.assertIn("Let my AI fix these 15 spots — $19", app.offer_block(rep, "launch", "", app.phone_counts(stats)))
+        self.assertIn("<b>#1</b> Some text is hard to read", html_)
+        self.assertIn("<b>#2</b> Some buttons or links are too small", html_)
+        self.assertNotIn("#!", html_)
+        self.assertIn("Fix Pack $9", html_)
+        self.assertNotIn("No phone layout problems", html_)
+        clean = app.phone_slot(rep, "J" * 24, "done", {"mode": "clean", "legend": [], "boxed": 0, "total": 0})
+        self.assertIn("No phone layout problems found", clean)
+        bot = app.phone_slot(rep, "J" * 24, "botcheck", {"mode": "botcheck"})
+        self.assertIn("showed a bot check to our browser", bot)
         self.assertEqual(app.phone_slot(rep, "J" * 24, "none"), "")
 
 
@@ -637,7 +684,10 @@ class Money(unittest.TestCase):
     def test_new_variants(self):
         self.assertIn("look unfinished", app.page("n", "polish"))
         self.assertIn("ready to launch", app.page("n", "ready"))
-        self.assertIn("Optional fix kits on Agensi", app.page("n", "key"))
+        self.assertIn("Free scan. Fix Pack $9 when you want every fix.", app.page("n", "key"))
+        for v in app.VARIANTS:
+            self.assertNotIn("agensi", app.page("n", v).lower())
+        self.assertIn("f.submit()", app.page("n", "dev", url_value="shipfa.st", autostart=True))
         self.assertIn('name="src" value="reddit"', app.page("n", "key", src="Reddit"))
 
 

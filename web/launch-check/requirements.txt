@@ -1,2 +1,4 @@
-# The web app itself uses the Python standard library. Playwright drives one headless Chromium for the phone render.
+# The web app itself uses the Python standard library. Playwright drives one headless Chromium for the renders;
+# Pillow draws the before/after share image.
 playwright==1.49.1
+pillow==10.4.0

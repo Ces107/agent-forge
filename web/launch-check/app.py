@@ -32,6 +32,10 @@ import fixpages  # noqa: E402
 DEMO_ID = "demo"
 DEMO_PATH = "/demo/flowpilot/"
 PAID: dict[str, dict] = {}  # scan id -> {"url", "t"}; rebuilt from LC_PAID log lines after a restart
+RESULTS: dict[str, dict] = {}  # scan id -> compact free view (14 days); rebuilt from LC_RESULT log lines
+RESULT_DAYS = 14
+CODES: dict[str, dict] = {}  # one-use free-pack codes: code -> {"t", "used"}; rebuilt from LC_CODE lines
+LASTING_PHONE: dict[str, dict] = {}  # scan id -> phone render regenerated for an old result (small LRU)
 
 SITE = (os.environ.get("BASE_URL") or os.environ.get("PUBLIC_URL") or "https://launch-check-upz2.onrender.com").rstrip("/")
 GITHUB = "https://github.com/Ces107/agent-forge/tree/main/skills/launch-check"
@@ -307,7 +311,9 @@ def rebuild_stats_from_logs(days=7, max_pages=150):
     import urllib.request
     end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     found = 0
-    for text in ("LC_EVENT", "stat ", "LC_PAID"):
+    for text in ("LC_EVENT", "stat ", "LC_PAID", "LC_RESULT", "LC_CODE"):
+        if text == "LC_RESULT":
+            days = RESULT_DAYS
         start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400))
         stop = end
         for _ in range(max_pages):
@@ -324,6 +330,19 @@ def rebuild_stats_from_logs(days=7, max_pages=150):
             with _stats_lock:
                 for log in data.get("logs", []):
                     msg = log.get("message", "").strip()
+                    if text in ("LC_RESULT", "LC_CODE"):
+                        if msg.startswith(text + " "):
+                            try:
+                                d = json.loads(msg[len(text) + 1:])
+                                if text == "LC_RESULT" and time.time() - d["t"] < RESULT_DAYS * 86400:
+                                    RESULTS[str(d["id"])[:40]] = d
+                                elif text == "LC_CODE":
+                                    c = CODES.setdefault(str(d["code"])[:12], {"t": d["t"], "used": None})
+                                    if d.get("used"):
+                                        c["used"] = str(d["used"])[:40]
+                            except (ValueError, KeyError, TypeError):
+                                pass
+                        continue
                     if text == "LC_PAID":
                         if msg.startswith("LC_PAID "):
                             try:
@@ -378,7 +397,7 @@ def shell(inner, nonce, v="dev", extra_head="", script=""):
 </div></main>{script}</body></html>"""
 
 
-def page(nonce, v="dev", url_value="", error="", src=""):
+def page(nonce, v="dev", url_value="", error="", src="", autostart=False):
     v = variant(v)
     d = copy_for(v)
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
@@ -408,13 +427,15 @@ def page(nonce, v="dev", url_value="", error="", src=""):
 <div class="bar" aria-hidden="true"><i></i></div>
 <div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
-<div class="biz">Free scan. Optional fix kits on Agensi.</div>
+<div class="biz">Free scan. Fix Pack $9 when you want every fix.</div>
 {src_html}
 {example}"""
+    auto = ("var f=document.getElementById('f');if(f.url.value){document.body.classList.add('busy');"
+            "document.getElementById('b').textContent='Checking… usually 10–20 s';f.submit();}") if autostart else ""
     script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
 document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 10–20 s';}},0);}});
-</script>"""
+{auto}</script>"""
     return shell(inner, nonce, v, script=script)
 
 
@@ -571,8 +592,7 @@ def phone_section(report):
 
 
 def phone_marks(report):
-    """Which problems to box: the phone items of the free top 3 (numbered like the list); if none, the highest
-    phone item with its number in the full list; if the page has no phone item, nothing (a clean render)."""
+    """Which problems to box first, in the order of the free list (the render then fills up to 2 boxes)."""
     fix = other_items(report)
     marks = {f["rule"][6:]: str(i + 1) for i, f in enumerate(fix[:3]) if f["area"] == "phone"}
     if not marks:
@@ -582,44 +602,109 @@ def phone_marks(report):
     return marks
 
 
+def plain_phone(key, detail=""):
+    return scanner.lc.PHONE_PLAIN.get(key) or scanner.lc.short(detail or key.replace("-", " "), 90)
+
+
 def phone_counts(stats):
-    """Real counts from the render: labels that matched an element, spots boxed, spots left."""
+    """Real counts from the render: the boxed spots (one numbering), spots left, and what kind of render it was."""
     if not stats:
         return {}
     total, boxed = int(stats.get("total", 0)), int(stats.get("boxed", 0))
-    fb = stats.get("fallback") or ""
-    return {"mode": stats.get("mode", "marks"), "matched": stats.get("matched", []), "boxed": boxed,
-            "more": max(0, total - boxed), "total": total,
-            "fallback": scanner.lc.PHONE_PLAIN.get(fb, fb.replace("-", " ")) if fb else ""}
+    legend = [{"n": int(x.get("n", i + 1)), "title": plain_phone(x.get("key", ""), x.get("detail", ""))}
+              for i, x in enumerate(stats.get("legend") or [])]
+    return {"mode": stats.get("mode", "marks"), "legend": legend, "boxed": boxed, "more": max(0, total - boxed),
+            "total": total, "lower": int(stats.get("y0", 0) or 0) > 0}
+
+
+def fixpack_cta(job_id, more):
+    spots = (f"+{more} more spot{'s' if more != 1 else ''} on your page · every one boxed on phone, tablet and desktop"
+             if more else "Every spot boxed on phone, tablet and desktop")
+    if fixpack.CHECKOUT_ON and job_id:
+        button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy fp-sm" type="submit">Get my Fix '
+                  f'Pack — {fixpack.PRICE}</button></form>')
+    else:
+        button = '<a class="fp-buy fp-sm" href="/fix/demo">See a sample Fix Pack</a>'
+    return (f'<div class="lc-side"><p class="lc-more" id="lc-more">{esc(spots)} · Fix Pack {fixpack.PRICE} (refund if it '
+            f'doesn\'t help)</p>{button}</div>')
 
 
 def phone_slot(report, job_id, state, stats=None):
-    """Async phone render: a slot that fills itself when the background render is done, or hides."""
-    if state not in ("rendering", "done") or not job_id:
+    """The real 375 px render: fills itself when the background render is done; honest when it can't be made."""
+    if state not in ("rendering", "done", "botcheck") or not job_id:
         return ""
+    if state == "botcheck":
+        return ('<section class="lc-phone lc-phs"><b>Your site showed a bot check to our browser, so we couldn\'t render '
+                'it.</b> The scan above still read your page code.</section>')
     counts = phone_counts(stats)
-    matched = set(counts.get("matched", []))
-    fix = other_items(report)
-    labels = set(phone_marks(report).values())
-    legend = "".join(f'<li data-l="#{i + 1}"{" hidden" if state == "done" and f"#{i + 1}" not in matched else ""}>'
-                     f'<b>#{i + 1}</b> {esc(scanner.lc.short(f["title"], 90))}</li>'
-                     for i, f in enumerate(fix) if f["area"] == "phone" and str(i + 1) in labels)
-    fb_hidden = "" if state == "done" and counts.get("mode") == "fallback" else " hidden"
-    legend += (f'<li id="lc-fb"{fb_hidden}><b>#!</b> <span>{esc(counts.get("fallback", ""))}</span> (seen in the real '
-               f'render)</li>')
-    clean_hidden = "" if state == "done" and counts.get("mode") == "clean" else " hidden"
-    legend += f'<li id="lc-clean"{clean_hidden}>No phone layout problems found on the first screen.</li>'
-    more = counts.get("more", 0)
-    more_html = (f'<p class="lc-more" id="lc-more"{"" if more else " hidden"}>+{more} more spot{"s" if more != 1 else ""} '
-                 f'on your page</p>')
+    legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}</li>' for x in counts.get("legend", []))
+    mode = counts.get("mode")
+    note = ""
+    if state == "done" and mode == "clean":
+        note = "No phone layout problems found on the first screen."
+    elif state == "done" and mode == "unboxed":
+        note = "The problems found are further down the page."
+    elif state == "done" and counts.get("lower"):
+        note = "Your first screen had no problems; this is the part of the page further down where they start."
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
-    wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
+    wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 20 s)</div>'
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
-            f'with the top problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">'
-            f'Rendered in a real browser at 375 px. Numbered boxes match the list below:</p><ul>{legend}</ul>'
-            f'{more_html}'
-            f'<p class="lc-phn">The Fix Pack has every box, plus tablet and desktop renders.</p></div></div></section>')
+            f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">Rendered in a '
+            f'real phone browser (375 px). Boxes:</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
+            f'{esc(note)}</p>{fixpack_cta(job_id, counts.get("more", 0))}</div></div></section>')
+
+
+def summary_of(report, job):
+    """The compact free view kept 14 days (logged as LC_RESULT, rebuilt after restarts)."""
+    keys = key_items(report)
+    red = [f for f in keys if f["severity"] == "HIGH" and f["rule"].startswith("secret-")]
+    fix = other_items(report)
+    assets = report["facts"].get("assets") or {}
+    return {"id": job["id"], "url": job["url"], "final": report["final_url"], "t": int(time.time()),
+            "score": report["score"], "v": job.get("v", "dev"), "src": job.get("src", ""),
+            "key": "bad" if red else ("mid" if keys else "ok"), "keys": [scanner.lc.short(f["title"], 120) for f in keys][:3],
+            "top3": [{"t": scanner.lc.short(f["title"], 140), "a": f["area"], "r": f["rule"]} for f in fix[:3]],
+            "n": len(fix), "scripts": assets.get("scanned", 0), "off": assets.get("skipped_offsite", 0)}
+
+
+def lasting_page(sm, nonce, phone_state=None, phone_stats=None):
+    """A result older than the in-memory report: summary, top 3 and the phone render (regenerated), one-click re-scan."""
+    host = urlparse.urlsplit(sm["final"]).hostname or sm["final"]
+    head = {"bad": "Yes: a secret key is showing in your site's code", "mid": "No secret keys, but keys to lock down",
+            "ok": "No secret keys found in your site's code"}[sm.get("key", "ok")]
+    keys = "".join(f"<li>{esc(t)}</li>" for t in sm.get("keys", []))
+    top = "".join(f"<li>{esc(x['t'])}</li>" for x in sm.get("top3", []))
+    when = time.strftime("%d %b %Y", time.gmtime(sm["t"]))
+    fake = {"findings": [], "facts": {}}
+    slot = phone_slot(fake, sm["id"], phone_state, phone_stats) if phone_state else ""
+    again = (f'<form method="post" action="/check"><input type="hidden" name="url" value="{esc(sm["url"])}">'
+             f'<input type="hidden" name="v" value="{esc(sm.get("v", "dev"))}"><button class="btn" type="submit">Scan '
+             f'{esc(host)} again</button></form>')
+    body = (f'<div class="card"><h1>{esc(host)}: score {sm["score"]}/100</h1><p>Checked {esc(when)}. '
+            f'{esc(head)}.</p>{"<ul>" + keys + "</ul>" if keys else ""}<div class="acts">{again}</div></div>{slot}'
+            f'<div class="card"><h2>Top {len(sm.get("top3", []))} problems{f" of {sm["n"]}" if sm.get("n", 0) > 3 else ""}</h2>'
+            f'<ol>{top}</ol></div><div class="card"><h2>Your Fix Pack</h2><p>Every problem boxed on phone, tablet and '
+            f'desktop, the files for your site and one fix prompt. Scan again to see your pack preview.</p><div class="acts">'
+            f'{again}<a class="btn s" href="/fix/demo">See a sample Fix Pack</a></div></div>')
+    return fixpages._doc(f"{host}: Launch Check result", body, nonce, PHONE_POLL_JS)
+
+
+PHONE_POLL_JS = r"""(function(){var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
+var u=s.getAttribute('data-u'),n=0;function poll(){n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json();})
+.then(function(d){if(d.state==='done'){var i=document.getElementById('lc-pi');i.onload=function(){i.hidden=false;
+var w=document.getElementById('lc-pw');if(w)w.remove();var leg=document.getElementById('lc-leg');leg.textContent='';
+(d.legend||[]).forEach(function(x){var li=document.createElement('li');var b=document.createElement('b');b.textContent='#'+x.n;
+li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));leg.appendChild(li);});
+var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
+if(d.mode==='unboxed')note.textContent='The problems found are further down the page.';
+if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
+var mo=document.getElementById('lc-more');if(mo){mo.textContent=(d.more>0?'+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page \u00b7 every one boxed on phone, tablet and desktop':'Every spot boxed on phone, tablet and desktop')+' \u00b7 Fix Pack $9 (refund if it doesn\u2019t help)';}
+var tl=document.querySelector('.fp-tl');if(tl&&d.more>0){tl.textContent='Phone \u00b7 tablet \u00b7 desktop renders, '+d.more+' more spot'+(d.more===1?'':'s')+' marked';}
+};i.onerror=function(){s.remove();};i.src=u+'.jpg';}
+else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site showed a bot check to our browser, so we couldn\u2019t render it.</b> The scan still read your page code.';}
+else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{s.remove();}}).catch(function(){s.remove();});}
+setTimeout(poll,3000);})();"""
 
 
 def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, phone_stats=None, before=None):
@@ -637,8 +722,15 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False)
     slot = phone_slot(report, job_id, phone_state, phone_stats)
     then = ""
-    if before is not None:
-        then = (f'<section class="lc-then">Before: <b>{before}/100</b> → now: <b>{report["score"]}/100</b></section>')
+    share_meta = ""
+    if before is not None and job_id:
+        img = f"{SITE}/share/{job_id}.png?b={before}"
+        host = urlparse.urlsplit(report["final_url"]).hostname or ""
+        then = (f'<section class="lc-then">Score <b>{before}</b> → <b>{report["score"]}</b> after the fixes. '
+                f'<a href="{esc(img)}" rel="noopener">Share image</a> · this page link shows it as the preview.</section>')
+        share_meta = (f'<meta property="og:title" content="{esc(host)}: launch score {before} → {report["score"]}">'
+                      f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
+                      f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
     first = then + secret_banner(report) + (slot or phone_section(report)) + free + preview
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
@@ -646,6 +738,8 @@ function ok(){{b.textContent='Copied — paste it to your AI';}}
 if(navigator.clipboard&&navigator.clipboard.writeText){{navigator.clipboard.writeText(t).then(ok,function(){{fallback();}});}}else{{fallback();}}
 function fallback(){{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();
 try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();
+{PHONE_POLL_JS}</script>"""
+    _unused = f"""<script nonce="{nonce}">
 (function(){{var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
 var u=s.getAttribute('data-u'),n=0;function poll(){{n++;fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}})
 .then(function(d){{if(d.state==='done'){{var i=document.getElementById('lc-pi');i.onload=function(){{i.hidden=false;
@@ -661,7 +755,7 @@ setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + fixpack.FP_CSS + RESULT_CSS
                       + '</style><meta name="robots" content="noindex"><link rel="icon" href="/favicon.svg" '
-                      'type="image/svg+xml"></head><body>' + top, 1)
+                      'type="image/svg+xml">' + share_meta + '</head><body>' + top, 1)
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Free scan: phone findings come from the page code (1 screen "
@@ -669,10 +763,8 @@ setTimeout(poll,3000);}})();</script>"""
                       "stays in memory for 10 minutes so the page can load, then it is dropped."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
-    agensi = (f'<p class="fp-agensi">Use Claude Code or Cursor? <a href="{esc(go("kit", v, src))}" rel="noopener">The '
-              f'skills are on Agensi</a>.</p>')
     if doc.endswith(tail):
-        doc = doc[: -len(tail)] + "</div>" + agensi + script + "</body></html>"
+        doc = doc[: -len(tail)] + "</div>" + script + "</body></html>"
     return doc
 
 
@@ -680,6 +772,8 @@ RESULT_CSS = """
 .lc-top3{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px 24px;margin:0 0 14px}
 .lc-top3 h2{font-size:20px;margin:0 0 8px}.lc-top3 ol{margin:0 0 12px;padding-left:22px;font-size:16px;font-weight:600}
 .lc-top3 li{margin:4px 0}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
+.lc-side{margin-top:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:12px 14px}
+.lc-side .lc-more{margin:0 0 10px;color:#14532d}.fp-sm{font-size:16px!important;padding:11px 18px!important}
 .lc-then{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 16px;margin:0 0 14px;font-size:16px}
 """
 
@@ -732,11 +826,7 @@ def start_job(url, v, src="", job_id=None, keep=False):
             out = scanner.render_phone(report["final_url"], marks)
         except Exception:  # never break the result page
             out = None
-        if out:
-            jpg, stats = out
-            job["phone"] = {"state": "done", "jpg": jpg, "stats": stats}
-        else:
-            job["phone"] = {"state": "none"}
+        job["phone"] = phone_state_from(out)
 
     def work():
         job = JOBS.get(job_id)
@@ -755,6 +845,9 @@ def start_job(url, v, src="", job_id=None, keep=False):
             if job.get("phone", {}).get("state") == "rendering":
                 threading.Thread(target=render_later, args=(job, report), daemon=True).start()
             count("scans_done", job["v"], job["src"])
+            sm = summary_of(report, job)
+            RESULTS[job_id] = sm
+            sys.stderr.write("LC_RESULT " + json.dumps(sm, separators=(",", ":"), ensure_ascii=True) + "\n")
             if any(f["severity"] != "INFO" for f in report["findings"]):
                 count("results_with_findings", job["v"], job["src"])
             sys.stderr.write(f"scan {host} score={report['score']} {report['seconds']}s\n")
@@ -776,6 +869,84 @@ def job_state(job):
     if job["state"] in ("queued", "running") and time.time() - job.get("started", job["t"]) > STUCK_AFTER:
         job.update(state="error", error="This site took too long to check. Try again, or try a lighter page.")
     return job["state"]
+
+
+def phone_state_from(out):
+    if not out:
+        return {"state": "none"}
+    jpg, stats = out
+    if (stats or {}).get("mode") == "botcheck":
+        return {"state": "botcheck", "stats": stats}
+    return {"state": "done", "jpg": jpg, "stats": stats}
+
+
+def start_lasting_phone(scan_id, sm):
+    """Regenerate the phone render of an old result (the JPEG is not kept across restarts)."""
+    if len(LASTING_PHONE) > 40:
+        LASTING_PHONE.pop(next(iter(LASTING_PHONE)))
+    marks = {x["r"][6:]: str(i + 1) for i, x in enumerate(sm.get("top3", [])) if x.get("a") == "phone"}
+    if scanner.RENDER_MODE != "async" or not scanner.render_slot_free():
+        LASTING_PHONE[scan_id] = {"state": "none"}
+        return LASTING_PHONE[scan_id]
+    LASTING_PHONE[scan_id] = {"state": "rendering"}
+
+    def work():
+        try:
+            out = scanner.render_phone(sm["final"], marks)
+        except Exception:  # never break the page
+            out = None
+        LASTING_PHONE[scan_id] = phone_state_from(out)
+
+    threading.Thread(target=work, daemon=True).start()
+    return LASTING_PHONE[scan_id]
+
+
+def mint_code():
+    code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
+    CODES[code] = {"t": time.time(), "used": None}
+    sys.stderr.write("LC_CODE " + json.dumps({"code": code, "t": int(time.time())}, separators=(",", ":")) + "\n")
+    return code
+
+
+def use_code(code, scan_id):
+    c = CODES.get((code or "").strip().upper())
+    if not c or (c["used"] and c["used"] != scan_id):
+        return False
+    if not c["used"]:
+        c["used"] = scan_id
+        sys.stderr.write("LC_CODE " + json.dumps({"code": code.strip().upper(), "used": scan_id, "t": int(time.time())},
+                                                 separators=(",", ":")) + "\n")
+    return True
+
+
+def share_png(host, before, after):
+    """1200x630 before/after card for social posts."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+    import io as _io
+    img = Image.new("RGB", (1200, 630), (15, 23, 42))
+    d = ImageDraw.Draw(img)
+
+    def font(size):
+        for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+        return ImageFont.load_default(size=size)
+
+    d.text((70, 70), "Launch Check", font=font(40), fill=(34, 197, 94))
+    d.text((70, 150), host[:40], font=font(56), fill=(226, 232, 240))
+    d.text((70, 260), f"{before}", font=font(170), fill=(248, 113, 113))
+    d.text((420, 300), "→", font=font(120), fill=(148, 163, 184))
+    d.text((620, 260), f"{after}", font=font(170), fill=(74, 222, 128))
+    d.text((70, 520), "launch score, before and after the Fix Pack", font=font(34), fill=(148, 163, 184))
+    buf = _io.BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
 
 
 def mark_paid(scan_id, url):
@@ -859,19 +1030,25 @@ class Handler(BaseHTTPRequestHandler):
             q = urlparse.parse_qs(parts.query)
             v = (q.get("v") or ["dev"])[0]
             n = secrets.token_urlsafe(16)
-            return self.send(200, page(n, v, src=(q.get("utm_source") or q.get("src") or [""])[0]), nonce=n,
-                             cache="no-cache")
+            pre = (q.get("url") or [""])[0].strip()[:2000]
+            return self.send(200, page(n, v, url_value=pre, src=(q.get("utm_source") or q.get("src") or [""])[0],
+                                       autostart=bool(pre)), nonce=n, cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
         m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status|/phone|/phone\.jpg)?", path)
         if m and JOB_ID.fullmatch(m.group(1)):
             job = JOBS.get(m.group(1))
             if m.group(2) == "/phone":
-                ph = (job or {}).get("phone") or {"state": "none"}
+                ph = (job or {}).get("phone") or LASTING_PHONE.get(m.group(1)) or {"state": "none"}
                 if ph["state"] == "rendering" and time.time() - job["t"] > 240:
                     ph = {"state": "none"}
                 return self.send(200, json.dumps({"state": ph["state"], **phone_counts(ph.get("stats"))}),
                                  "application/json")
+            if m.group(2) == "/phone.jpg" and not job:
+                jpg = (LASTING_PHONE.get(m.group(1)) or {}).get("jpg")
+                if not jpg:
+                    return self.send(404, "not found", "text/plain; charset=utf-8")
+                return self.send(200, jpg, "image/jpeg", cache="private, max-age=600")
             if m.group(2) == "/phone.jpg":
                 jpg = ((job or {}).get("phone") or {}).get("jpg")
                 if not jpg:
@@ -882,8 +1059,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"state": state}), "application/json")
             n = secrets.token_urlsafe(16)
             if not job:
-                return self.send(404, page(n, error="This result has expired (results are kept for 10 minutes). "
-                                                    "Check your app again."), nonce=n)
+                sm = RESULTS.get(m.group(1))
+                if sm and time.time() - sm["t"] < RESULT_DAYS * 86400:
+                    ph = LASTING_PHONE.get(m.group(1))
+                    if ph is None:
+                        ph = start_lasting_phone(m.group(1), sm)
+                    return self.send(200, lasting_page(sm, n, ph.get("state"), ph.get("stats")), nonce=n)
+                return self.send(404, page(n, error="This result is no longer available. Scan your site again below."),
+                                 nonce=n)
             state = job_state(job)
             if state == "done" and job["report"].get("job") != m.group(1):
                 sys.stderr.write("ISOLATION: report/job mismatch refused\n")
@@ -910,7 +1093,7 @@ class Handler(BaseHTTPRequestHandler):
             if og.is_file():
                 return self.send(200, og.read_bytes(), "image/png", cache="public, max-age=86400")
         if path == "/robots.txt":
-            return self.send(200, f"User-agent: *\nAllow: /\nDisallow: /r/\nSitemap: {SITE}/sitemap.xml\n",
+            return self.send(200, f"User-agent: *\nAllow: /\nDisallow: /r/\nDisallow: /fix/\nDisallow: /*?url=\nSitemap: {SITE}/sitemap.xml\n",
                              "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/sitemap.xml":
             return self.send(200, f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/'
@@ -922,6 +1105,28 @@ class Handler(BaseHTTPRequestHandler):
                                   "Cursor.\n", "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/check":
             return self.send(303, "", extra={"Location": "/"})
+        sh = re.fullmatch(r"/share/([A-Za-z0-9_-]{20,40})\.png", path)
+        if sh:
+            q = urlparse.parse_qs(parts.query)
+            b = (q.get("b") or [""])[0]
+            job = JOBS.get(sh.group(1))
+            now = ((job or {}).get("report") or {}).get("score")
+            if now is None:
+                now = (RESULTS.get(sh.group(1)) or {}).get("score")
+            host = ((job or {}).get("host") or urlparse.urlsplit((RESULTS.get(sh.group(1)) or {}).get("final", "")).hostname
+                    or "")
+            png = share_png(host, int(b), now) if b.isdigit() and int(b) <= 100 and now is not None else None
+            if not png:
+                return self.send(404, "not found", "text/plain; charset=utf-8")
+            return self.send(200, png, "image/png", cache="public, max-age=86400")
+        if path == "/admin/code":
+            token = (urlparse.parse_qs(parts.query).get("token") or [""])[0]
+            if not (STATS_TOKEN and secrets.compare_digest(token.encode(), STATS_TOKEN.encode())):
+                return self.send(404, "not found", "text/plain; charset=utf-8")
+            code = mint_code()
+            return self.send(200, json.dumps({"code": code, "use": f"{SITE}/fix/<scan-id>?code={code}",
+                                              "open": sorted(k for k, c in CODES.items() if not c["used"])}),
+                             "application/json")
         if path == DEMO_PATH:
             demo = Path(__file__).resolve().parent / "static" / "demo-flowpilot.html"
             return self.send(200, demo.read_bytes(), extra={"X-Robots-Tag": "noindex"}, csp=(
@@ -948,6 +1153,14 @@ class Handler(BaseHTTPRequestHandler):
         demo = scan_id == DEMO_ID
         token = (q.get("token") or [""])[0]
         n = secrets.token_urlsafe(16)
+        code = (q.get("code") or [""])[0]
+        if code and not demo and not fixpack.token_ok(scan_id, token):
+            job = JOBS.get(scan_id)
+            url = (job or {}).get("url") or (RESULTS.get(scan_id) or {}).get("url")
+            if url and use_code(code, scan_id):
+                mark_paid(scan_id, url)
+                count("code_redeemed", (job or {}).get("v", "dev"), "")
+                return self.send(303, "", extra={"Location": f"/fix/{scan_id}?token={fixpack.token_for(scan_id)}"})
         if not demo and not fixpack.token_ok(scan_id, token):
             checkout = (q.get("checkout_id") or [""])[0]
             job = JOBS.get(scan_id)
