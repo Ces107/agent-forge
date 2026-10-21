@@ -121,6 +121,7 @@ def scan_scripts(fetcher, base, resp, parser):
     text = lc.decode(resp.body)
     hits = lc.scan_text(text, "page HTML")
     backend = lc.find_backends(text, {})
+    firebase = bool(FIREBASE_CONFIG.search(text))
     seen, queue, third = set(), [], 0
     for src in parser.scripts:
         full = urlparse.urljoin(base, src.strip()).split("#", 1)[0]
@@ -160,6 +161,7 @@ def scan_scripts(fetcher, base, resp, parser):
                     else f"{where.hostname}{where.path}"
                 hits += lc.scan_text(body, label or src)
                 lc.find_backends(body, backend)
+                firebase = firebase or bool(FIREBASE_CONFIG.search(body))
                 for m in re.finditer(r"""(?:import\(|from\s*|import\s*)["'`](\.{0,2}/[^"'`\s]{1,200}\.m?js)["'`]""", body):
                     nxt = urlparse.urljoin(src, m.group(1)).split("#", 1)[0]
                     if nxt not in seen and script_party(nxt, base) == "first":
@@ -167,7 +169,27 @@ def scan_scripts(fetcher, base, resp, parser):
                         queue.append(nxt)
                         assets["same_origin"] += 1
     assets["backend"] = backend
-    return lc.secret_findings(hits), assets
+    assets["firebase_config"] = firebase or bool(backend.get("firebase_urls"))
+    return classify_google(lc.secret_findings(hits), assets["firebase_config"]), assets
+
+
+FIREBASE_CONFIG = re.compile(r"""\b(?:authDomain|projectId|storageBucket|messagingSenderId)["']?\s*:\s*["'`]""")
+FIREBASE_TITLE = "Your Firebase/Google API key is in your website's code: restrict it to your domain"
+FIREBASE_FIX = ("A Firebase web key is public by design, but restrict it in Google Cloud > Credentials to your domain "
+                "(HTTP referrers) and to the Firebase APIs you use, and make sure the Gemini API is not enabled for it.")
+
+
+def classify_google(findings, firebase):
+    """AIza... key next to a Firebase config -> MEDIUM (restrict it). Without one (Gemini/Maps called straight
+    from the browser) -> HIGH with the bill wording."""
+    for f in findings:
+        if f["rule"] != "secret-google-api":
+            continue
+        if firebase:
+            f.update(severity="MEDIUM", title=FIREBASE_TITLE, fix=FIREBASE_FIX)
+        else:
+            f.update(severity="HIGH", title=GOOGLE_TITLE, fix=GOOGLE_FIX)
+    return findings
 
 
 class BudgetFetcher(lc.Fetcher):
@@ -295,24 +317,44 @@ def backend_findings(backend):
     return out
 
 
+PRIVATE_MSG = "That address (or a redirect from it) points to a private or reserved address."
+
+
+def fetch_page(fetcher, url, max_hops=5):
+    """GET the page, following redirects across hosts (http->https, apex<->www, domain moves), at most 5 hops.
+    Every hop connects through the SSRF guard, so a hop to a private/reserved address is refused."""
+    chain = []
+    for _ in range(max_hops + 1):
+        resp = fetcher.raw(url, lc.MAX_HTML)
+        if resp.status == 0:
+            msg = resp.error or "no answer"
+            if "refused" in msg or "private" in msg:
+                raise ScanError(PRIVATE_MSG)
+            raise ScanError(f"Could not load {lc.clean(url, 120)}: {lc.clean(msg, 100)}")
+        if resp.status in (301, 302, 303, 307, 308) and resp.header("location"):
+            nxt = urlparse.urljoin(url, resp.header("location").strip()).split("#", 1)[0]
+            if not re.match(r"^https?://", nxt, re.I):
+                raise ScanError("The address redirects to something that is not a web page.")
+            try:
+                parts = urlparse.urlsplit(nxt)
+                guard.resolve_public(parts.hostname or "", parts.port or (443 if parts.scheme == "https" else 80))
+            except guard.BlockedAddress:
+                raise ScanError(PRIVATE_MSG)
+            except (OSError, ValueError):
+                raise ScanError(f"The address redirects to {lc.clean(nxt, 120)}, which could not be found.")
+            chain.append((url, resp.status, nxt))
+            url = nxt
+            continue
+        return resp, chain
+    raise ScanError("The address redirects more than 5 times. Paste the final address of your app.")
+
+
 def scan(raw_url):
     t0 = time.time()
     deadline = t0 + BUDGET
     url = validate(raw_url)
     fetcher = BudgetFetcher(deadline)
-    try:
-        resp, chain = fetcher.get(url)
-    except guard.BlockedAddress:
-        raise ScanError("That address (or a redirect from it) points to a private or reserved address.")
-    if resp.status == 0:
-        msg = resp.error or "no answer"
-        if "refused:" in msg or "private" in msg:
-            raise ScanError("That address (or a redirect from it) points to a private or reserved address.")
-        if "another site" in msg:
-            raise ScanError("The address redirects to another website. Paste the final address of your app.")
-        raise ScanError(f"Could not load {lc.clean(url, 120)}: {lc.clean(msg, 100)}")
-    if resp.status in (301, 302, 303, 307, 308):
-        raise ScanError("The address redirects to another website. Paste the final address of your app.")
+    resp, chain = fetch_page(fetcher, url)
     if resp.status >= 400:
         hint = (" The site blocks automated visitors: try your preview or staging address."
                 if resp.status in (401, 403, 429, 503) else "")

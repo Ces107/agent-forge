@@ -158,10 +158,11 @@ FAKE_GOOGLE_KEY = "AIza" + "SyFAKEkeyForTestsOnly0123456789abcd"  # 39 chars, no
 
 class FakeApp(http.server.BaseHTTPRequestHandler):
     """A tiny 'AI-built app': the Google key sits only in the same-origin JS bundle."""
+    bundle = ""
 
     def do_GET(self):
         if self.path.startswith("/assets/app.js"):
-            body = f'const firebaseConfig={{apiKey:"{FAKE_GOOGLE_KEY}"}};'.encode()
+            body = FakeApp.bundle.encode()
             ctype = "application/javascript"
         else:
             body = (b'<html><head><title>My test app for launch</title><script type="module" src="/assets/app.js">'
@@ -177,31 +178,110 @@ class FakeApp(http.server.BaseHTTPRequestHandler):
         pass
 
 
-class GoogleKey(unittest.TestCase):
-    def test_pattern_and_text(self):
-        hits = scan.lc.scan_text(f'x="{FAKE_GOOGLE_KEY}"', "bundle.js")
-        out = scan.lc.secret_findings(hits)
-        self.assertEqual(out[0]["rule"], "secret-google-api")
-        self.assertEqual(out[0]["severity"], "MEDIUM")
-        self.assertEqual(out[0]["title"], "Your Google/Gemini API key is visible in your website's code: anyone can "
-                                          "use it on your bill")
-        self.assertIn("call Gemini from a server function", out[0]["fix"])
-        self.assertNotIn(FAKE_GOOGLE_KEY, out[0]["value"])  # redacted
+def scan_fake(bundle):
+    FakeApp.bundle = bundle
+    srv = serve(FakeApp)
+    guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
+    try:
+        return scan.scan(f"http://127.0.0.1:{srv.server_port}/")
+    finally:
+        guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
+        srv.shutdown()
 
-    def test_found_in_same_origin_bundle_end_to_end(self):
-        srv = serve(FakeApp)
-        guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
-        try:
-            report = scan.scan(f"http://127.0.0.1:{srv.server_port}/")
-        finally:
-            guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
-            srv.shutdown()
+
+FIREBASE_BUNDLE = ('const firebaseConfig={apiKey:"%s",authDomain:"demo-app.firebaseapp.com",projectId:"demo-app"};'
+                   % FAKE_GOOGLE_KEY)
+GEMINI_BUNDLE = ('fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s")'
+                 % FAKE_GOOGLE_KEY)
+
+
+class GoogleKey(unittest.TestCase):
+    def test_pattern_redacted(self):
+        out = scan.lc.secret_findings(scan.lc.scan_text(f'x="{FAKE_GOOGLE_KEY}"', "bundle.js"))
+        self.assertEqual(out[0]["rule"], "secret-google-api")
+        self.assertNotIn(FAKE_GOOGLE_KEY, out[0]["value"])
+
+    def test_classify(self):
+        f = scan.lc.secret_findings(scan.lc.scan_text(f'x="{FAKE_GOOGLE_KEY}"', "b.js"))
+        self.assertEqual(scan.classify_google([dict(f[0])], firebase=True)[0]["severity"], "MEDIUM")
+        g = scan.classify_google([dict(f[0])], firebase=False)[0]
+        self.assertEqual(g["severity"], "HIGH")
+        self.assertEqual(g["title"], "Your Google/Gemini API key is visible in your website's code: anyone can use it "
+                                     "on your bill")
+        self.assertIn("call Gemini from a server function", g["fix"])
+
+    def test_firebase_config_in_bundle_is_medium(self):
+        report = scan_fake(FIREBASE_BUNDLE)
         g = [f for f in report["findings"] if f["rule"] == "secret-google-api"]
-        self.assertEqual(len(g), 1)
-        self.assertEqual(g[0]["where"], "/assets/app.js")
+        self.assertEqual((len(g), g[0]["severity"], g[0]["where"]), (1, "MEDIUM", "/assets/app.js"))
+        self.assertIn("restrict it to your domain", g[0]["title"])
+        self.assertIn("key to lock down", app.secret_banner(report))
+
+    def test_gemini_key_without_firebase_is_high(self):
+        report = scan_fake(GEMINI_BUNDLE)
+        g = [f for f in report["findings"] if f["rule"] == "secret-google-api"]
+        self.assertEqual((len(g), g[0]["severity"]), (1, "HIGH"))
         self.assertIn(g[0], report["fix_first"])
-        self.assertIn("Secret key found", app.secret_banner(report))
-        self.assertNotIn(FAKE_GOOGLE_KEY, app.result_page(report, "n"))
+        self.assertLessEqual(report["score"], 39)
+        page = app.result_page(report, "n")
+        self.assertIn("Yes: 1 secret key showing", page)
+        self.assertIn("Other launch checks (", page)
+        self.assertNotIn(FAKE_GOOGLE_KEY, page)
+
+
+class Hop(http.server.BaseHTTPRequestHandler):
+    target = ""
+
+    def do_GET(self):
+        self.send_response(301)
+        self.send_header("Location", Hop.target)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
+class Redirects(unittest.TestCase):
+    def test_follows_cross_host_redirect_and_reports_final(self):
+        FakeApp.bundle = "console.log(1)"
+        dest = serve(FakeApp)
+        Hop.target = f"http://127.0.0.1:{dest.server_port}/landing"
+        src = serve(Hop)
+        for s_ in (src, dest):
+            guard._EXTRA_ALLOWED.add(("127.0.0.1", s_.server_port))
+        try:
+            report = scan.scan(f"http://127.0.0.1:{src.server_port}/")
+        finally:
+            for s_ in (src, dest):
+                guard._EXTRA_ALLOWED.discard(("127.0.0.1", s_.server_port))
+                s_.shutdown()
+        self.assertEqual(report["final_url"], Hop.target)
+        self.assertIn("Checked:</b> " + Hop.target, app.secret_banner(report))
+
+    def test_redirect_hop_to_private_is_refused(self):
+        Hop.target = "http://169.254.169.254/latest/meta-data/"
+        src = serve(Hop)
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", src.server_port))
+        try:
+            with self.assertRaises(scan.ScanError) as ctx:
+                scan.scan(f"http://127.0.0.1:{src.server_port}/")
+            self.assertIn("private or reserved", str(ctx.exception))
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", src.server_port))
+            src.shutdown()
+
+    def test_too_many_hops(self):
+        src = serve(Hop)
+        Hop.target = f"http://127.0.0.1:{src.server_port}/again"
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", src.server_port))
+        try:
+            with self.assertRaises(scan.ScanError) as ctx:
+                scan.scan(f"http://127.0.0.1:{src.server_port}/")
+            self.assertIn("more than 5", str(ctx.exception))
+        finally:
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", src.server_port))
+            src.shutdown()
 
 
 class ScriptScope(unittest.TestCase):
@@ -236,10 +316,10 @@ class Presentation(unittest.TestCase):
         self.assertTrue(out[0]["title"].startswith("Supabase found: make sure Row Level Security"))
 
     def test_banner(self):
-        ok = {"findings": [], "facts": {"assets": {"scanned": 3}}}
-        self.assertIn("No secret keys found", app.secret_banner(ok))
-        leak = {"findings": [{"rule": "secret-stripe-secret", "severity": "HIGH"}], "facts": {"assets": {}}}
-        self.assertIn("Secret key found", app.secret_banner(leak))
+        base = {"facts": {"assets": {"scanned": 3}}, "url": "https://a.com/", "final_url": "https://a.com/", "seconds": 5}
+        self.assertIn("No secret keys found", app.secret_banner({**base, "findings": []}))
+        leak = {"rule": "secret-stripe-secret", "severity": "HIGH", "title": "t", "fix": "f", "where": "", "value": ""}
+        self.assertIn("Yes: 1 secret key showing", app.secret_banner({**base, "findings": [leak]}))
 
 
 if __name__ == "__main__":

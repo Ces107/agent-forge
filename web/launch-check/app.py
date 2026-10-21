@@ -63,11 +63,11 @@ VARIANTS = {
     "bill": {"h1": "A leaked Gemini key cost a 3-person startup $82,314 in 48 hours.",
              "source": "Reported by the developer, via The Register, March 2026",
              "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
-             "sev": "MEDIUM", "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
+             "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
     "gemini": {"h1": "$6,000 in 40 minutes, from one key in a site's JavaScript.",
                "source": "Developer's report on Google's AI developer forum, April 2026",
                "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
-               "sev": "MEDIUM", "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
+               "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
 SUB ="See the result usually in under 20 seconds. Free, no signup, nothing stored."
 
@@ -147,6 +147,30 @@ color:#0f172a;text-decoration:none;font-size:14px}
 @media (max-width:420px){.verdict{font-size:26px!important}.num{font-size:32px!important}}
 """
 
+KEY_CSS = """
+.lc-key{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:24px 28px;margin:0 0 14px;
+box-shadow:0 1px 2px rgba(15,23,42,.04),0 12px 32px rgba(15,23,42,.06)}
+.lc-key h1{font-size:14px;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin:0 0 14px}
+.lc-ans{display:flex;gap:18px;align-items:center}
+.lc-ico{flex:none;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;font-size:42px;font-weight:900;color:#fff}
+.k-ok .lc-ico{background:#16a34a}.k-bad .lc-ico{background:#dc2626}.k-mid .lc-ico{background:#d97706}
+.lc-ans b{display:block;font-size:30px;line-height:1.12;letter-spacing:-.02em}
+.k-ok .lc-ans b{color:#14532d}.k-bad .lc-ans b{color:#991b1b}.k-mid .lc-ans b{color:#92400e}
+.lc-scope{color:#475569;font-size:15px;margin-top:6px}
+.lc-checked{color:#334155;font-size:14px;margin-top:16px;overflow-wrap:anywhere}.lc-checked b{font-weight:700}
+.lc-keys{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.lc-keys li{border:1px solid #e2e8f0;border-left:5px solid #dc2626;border-radius:14px;padding:12px 16px}
+.lc-keys li.m{border-left-color:#d97706}.lc-keys b{font-size:16px}
+.lc-keys small{display:block;color:#64748b;font-family:Consolas,monospace;font-size:12px;margin-top:2px;overflow-wrap:anywhere}
+.lc-keys p{margin:6px 0 0;color:#334155;font-size:14px}
+details.lc-other{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:0;margin:14px 0 0}
+details.lc-other>summary{padding:16px 20px;font-size:18px;font-weight:800;cursor:pointer}
+details.lc-other>summary span{font-weight:600;color:#64748b;font-size:14px;margin-left:6px}
+details.lc-other[open]>summary{border-bottom:1px solid #e2e8f0}.lc-oin{padding:16px 20px 20px}
+@media (max-width:600px){.lc-key{padding:18px 16px}.lc-ans b{font-size:22px}.lc-ico{width:56px;height:56px;font-size:30px}
+.lc-oin{padding:12px}}
+"""
+
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -216,24 +240,65 @@ if(d.state==='done'||d.state==='error'||d.state==='gone'){{location.reload();}}e
     return shell(inner, nonce, job.get("v", "key"), extra_head=head, script=script)
 
 
+KEY_RULES = ("supabase-found", "firebase-found")
+
+
+def key_items(report):
+    return [f for f in report["findings"] if f["severity"] != "INFO"
+            and (f["rule"].startswith("secret-") or f["rule"] in KEY_RULES)]
+
+
 def secret_banner(report):
-    secrets_found = [f for f in report["findings"] if f["rule"].startswith("secret-") and f["severity"] in ("HIGH", "MEDIUM")]
+    """The first section of the result: is a secret key showing?"""
+    items = key_items(report)
     assets = report["facts"].get("assets") or {}
     n, off = assets.get("scanned", 0), assets.get("skipped_offsite", 0)
-    scope = f"{n} script{'s' if n != 1 else ''} checked" + (f"; {off} third-party script{'s' if off != 1 else ''} skipped" if off else "")
-    if secrets_found:
-        return (f'<div class="lc-bad">✗ Secret key found in your site\'s code <small>({len(secrets_found)} found, '
-                f'{esc(scope)}: see “Fix this first”)</small></div>')
-    if n == 0 and off:
-        return (f'<div class="lc-mid">No secret keys in your page HTML <small>({off} script{"s" if off != 1 else ""} '
-                f'are third-party (analytics, widgets) and were not checked)</small></div>')
-    return f'<div class="lc-ok">✓ No secret keys found in your site\'s code <small>({esc(scope)})</small></div>'
+    red = [f for f in items if f["severity"] == "HIGH" and f["rule"].startswith("secret-")]
+    s = lambda k: "s" if k != 1 else ""  # noqa: E731
+    if red:
+        cls, ico, head = "k-bad", "✗", f"Yes: {len(red)} secret key{s(len(red))} showing in your site's code"
+    elif items:
+        cls, ico, head = "k-mid", "!", f"No secret keys, but {len(items)} key{s(len(items))} to lock down"
+    elif n == 0 and off:
+        cls, ico, head = "k-mid", "?", "No secret keys in your page HTML"
+    else:
+        cls, ico, head = "k-ok", "✓", "No secret keys found in your site's code"
+    scope = f"page HTML + {n} script{s(n)} checked"
+    if off:
+        scope += f" · {off} third-party script{s(off)} (analytics, widgets) not checked"
+    scope += f" · {report.get('seconds', 0):.0f} s"
+    entered = report.get("url", "")
+    moved = (f' <span>(you entered {esc(entered)})</span>'
+             if entered and entered.rstrip("/") != report["final_url"].rstrip("/") else "")
+    cards = []
+    for f in items:
+        meta = " · ".join(esc(x) for x in (f["where"], f["value"]) if x)
+        cards.append(f'<li class="{"" if f["severity"] == "HIGH" else "m"}"><b>{esc(f["title"])}</b>'
+                     f'{"<small>" + meta + "</small>" if meta else ""}<p>{esc(f["fix"])}</p></li>')
+    listing = '<ul class="lc-keys">' + "".join(cards) + "</ul>" if cards else ""
+    return (f'<section class="lc-key {cls}"><h1>Is a secret key showing?</h1>'
+            f'<div class="lc-ans"><div class="lc-ico" aria-hidden="true">{ico}</div><div><b>{esc(head)}</b>'
+            f'<div class="lc-scope">{esc(scope)}</div></div></div>{listing}'
+            f'<div class="lc-checked"><b>Checked:</b> {esc(report["final_url"])}{moved}</div></section>')
+
+
+def fix_prompt(report):
+    keys = key_items(report)
+    rest = [f for f in report["findings"] if f["severity"] in ("HIGH", "MEDIUM") and f not in keys]
+    return scanner.lc.ai_prompt({**report, "fix_first": (keys + rest)[:10]})
 
 
 def result_page(report, nonce):
     doc = scanner.render(report)
-    prompt_btn = '<button id="lc-copy" type="button">Copy fix list for your AI</button>'
-    doc = re.sub(r'<button onclick="[^"]*">Copy</button>', prompt_btn, doc, count=1)
+    doc = re.sub(r'<div class="ask">.*?</pre></div>', "", doc, count=1, flags=re.S)
+    prompt = fix_prompt(report)
+    ask = (f'<div class="ask"><div class="h">Paste to your AI: the key answer and every other launch check</div>'
+           f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
+           if prompt else "")
+    keys = key_items(report)
+    other = [f for f in report["findings"] if f["severity"] != "INFO" and f not in keys]
+    summary = (f'<details class="lc-other"><summary>Other launch checks ({len(other)}) <span>score '
+               f'{report["score"]}/100 · headers, phone, Google &amp; AI, speed</span></summary><div class="lc-oin">')
     funnel = f"""<section class="lc-next"><h2>Next</h2><div class="lc-cards">
 <a href="{GITHUB}" rel="noopener"><b>Fix it with your AI, free</b><span>Run the full Launch Check in Claude Code or
 Cursor: real phone test, open-database test on your own site, re-check after each fix.</span> <em>GitHub →</em></a>
@@ -249,9 +314,11 @@ if(navigator.clipboard&&navigator.clipboard.writeText){{navigator.clipboard.writ
 function fallback(){{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();
 try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
-    doc = doc.replace("</style></head><body>", FUNNEL_CSS + '</style><meta name="robots" content="noindex">'
+    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + '</style><meta name="robots" content="noindex">'
                       '<link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
-    doc = doc.replace("</section>\n<div class=\"grid\">", "</section>\n" + secret_banner(report) + "<div class=\"grid\">", 1)
+    doc = doc.replace('<section class="hero">', secret_banner(report) + ask + summary + '<section class="hero">', 1)
+    doc = doc.replace("<h2>Fix this first</h2>", "<h2>Fix these first</h2>", 1)
+    doc = doc.replace('<div class="foot">', '</div></details><div class="foot">', 1)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Web version: phone design uses basic checks (no "
                       "browser), no open-database test. Nothing was written to disk: this report stays in memory for "
