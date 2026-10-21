@@ -489,8 +489,7 @@ def scan(raw_url):
     phone = results.get("phone") or (None, [], "skipped: did not finish in time", {"mode": "none"})
     scores["phone"], phone_f, why, phone_view = phone
     sys.stderr.write(f"phone mode={phone_view.get('mode')} img={bool(phone_view.get('image'))} "
-                     f"reason={str(phone_view.get('reason', ''))[:120]}
-")
+                     f"reason={str(phone_view.get('reason', ''))[:120]}\n")
     findings += phone_f
     if why:
         skipped["phone"] = why
