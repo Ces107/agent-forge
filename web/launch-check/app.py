@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import scan as scanner  # noqa: E402  (installs the SSRF guard)
 
-SITE = os.environ.get("PUBLIC_URL", "https://launch-check.onrender.com").rstrip("/")
+SITE = os.environ.get("PUBLIC_URL", "https://launch-check-upz2.onrender.com").rstrip("/")
 GITHUB = "https://github.com/Ces107/agent-forge/tree/main/skills/launch-check"
 KIT_WEB = "https://www.agensi.io/bundles/web-design-seo-toolkit-pro-sites-with-ai?utm_source=launchcheck"
 KIT_GUARD = "https://www.agensi.io/bundles/claude-code-guardrails-safe-honest-agent-kit?utm_source=launchcheck"
