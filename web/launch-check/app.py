@@ -796,7 +796,10 @@ def ensure_pack(job):
     def work():
         try:
             rescan = f"{SITE}/fix/{job['id']}"
-            job["pack"] = fixpack.build_pack(job["report"], rescan)
+            pack = fixpack.build_pack(job["report"], rescan)
+            if job["id"] == DEMO_ID:
+                pack["zip_name"] = "fix-pack-flowpilot-demo.zip"
+            job["pack"] = pack
         except Exception as exc:  # never leave the buyer on a spinner
             sys.stderr.write(f"pack failed: {type(exc).__name__}\n")
             job["pack"] = {"state": "failed"}

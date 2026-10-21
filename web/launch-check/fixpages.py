@@ -82,7 +82,7 @@ def locked_page(nonce, message="This Fix Pack is locked"):
 
 
 def pack_page(report, pack, scan_id, token, nonce, demo):
-    host = urlparse.urlsplit(report["final_url"]).hostname or report["final_url"]
+    host = "FlowPilot (demo page)" if demo else (urlparse.urlsplit(report["final_url"]).hostname or report["final_url"])
     q = f"?token={token}" if token else ""
     head = ('<span class="badge">Sample pack for the seeded FlowPilot demo page, a typical AI-built landing page</span>'
             if demo else "")
