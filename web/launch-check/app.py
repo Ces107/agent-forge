@@ -155,7 +155,8 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
                       '<link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body>' + top, 1)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Web version: phone design uses basic checks (no "
-                      "browser), no open-database test. Nothing about this scan was stored.</div>", 1)
+                      "browser), no open-database test. Nothing about this scan was stored."
+                      + "".join(f"<br>Note: {esc(n)}" for n in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
         doc = doc[: -len(tail)] + "</div>" + funnel + script + "</body></html>"
