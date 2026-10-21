@@ -87,7 +87,7 @@ def run_vendored(script, args, timeout):
     """The CLI's run_vendored, but through run_guarded.py (SSRF guard installed in the child too)."""
     cmd = [sys.executable, str(HERE / "run_guarded.py"), script] + args
     env = {k: v for k, v in os.environ.items() if not k.lower().endswith("_proxy")}
-    env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"})
+    env.update({"PYTHONIOENCODING": "utf-8"})
     try:
         run = subprocess.run(cmd, capture_output=True, timeout=max(2.0, timeout), stdin=subprocess.DEVNULL,  # nosec B603
                              env=env, cwd=str(HERE))
