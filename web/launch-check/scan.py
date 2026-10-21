@@ -38,6 +38,8 @@ lc.USER_AGENT = lc.USER_AGENT.replace("passive pre-launch check", "passive pre-l
 lc.AREAS = [("security", "Security"), ("phone", "Phone design (basic)"), ("search", "Found by Google & AI"),
             ("speed", "Speed & basics")]
 lc.MAX_LINKS = 6
+lc.PHONE_PLAIN.setdefault("fixed-width", "Some parts have a fixed width that is wider than a phone screen")
+lc.PHONE_PLAIN.setdefault("type-scale", "Font sizes do not follow a clear scale: the page looks unplanned")
 lc.LINK_DELAY = 0.05
 # Google API keys (AIza..., Maps/Firebase/Gemini): once Gemini is enabled on the project, an unrestricted key in the
 # page is a billable credential (reported bills: $82K in 48 h, ~$6K in 40 min). Amber, not red: a Firebase web key
