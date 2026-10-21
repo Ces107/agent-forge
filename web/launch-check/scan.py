@@ -303,7 +303,7 @@ def backend_findings(backend):
             "Supabase found: make sure Row Level Security is on for every table (the free Launch Check skill can "
             "test it on your own app)",
             "Turn on Row Level Security with per-user policies for every Supabase table (anonymous visitors must not "
-            "read private tables), then run the free Launch Check skill with --owner-check on your own app to confirm.",
+            "read private tables), then test it with the full Launch Check on your own app.",
             where=host(backend["supabase_urls"][0]),
             detail="Supabase URL and public key in the page" if has_key else "Supabase URL in the page"))
     if backend.get("firebase_urls"):
@@ -312,7 +312,7 @@ def backend_findings(backend):
             "Firebase found: make sure your database rules require sign-in (the free Launch Check skill can test it "
             "on your own app)",
             "Set Firebase Realtime Database / Firestore rules so .read and .write require sign-in and each user reaches "
-            "only their own data, then run the free Launch Check skill with --owner-check on your own app.",
+            "only their own data, then test it with the full Launch Check on your own app.",
             where=host(backend["firebase_urls"][0])))
     return out
 
@@ -372,6 +372,19 @@ def area_note(key, fix, skipped):
         return "nothing important found"
     more = f" (+{len(fs) - 1} more)" if len(fs) > 1 else ""
     return lc.short(fs[0]["title"], 74 - len(more)) + more
+
+
+FLAG = re.compile(r"--[a-z][a-z0-9-]+")
+
+
+def plain(text):
+    """No command-line jargon in anything a visitor reads: drop '(... --flag ...)' asides and '; ... --flag' clauses."""
+    if not text or "--" not in text:
+        return text
+    text = re.sub(r"\s*\([^()]*--[a-z][^()]*\)", "", text)
+    text = "; ".join(part for part in text.split("; ") if not FLAG.search(part))
+    text = re.sub(r"[^.;]*--[a-z][a-z0-9-]+[^.;]*[.;]?", "", text).strip()
+    return text if text.endswith((".", "!", "?", ")")) or not text else text + "."
 
 
 def scan(raw_url):
@@ -440,6 +453,9 @@ def scan(raw_url):
     if why:
         skipped["search"] = why
 
+    for f in findings:
+        f.update(title=plain(f["title"]), fix=plain(f["fix"]), detail=plain(f.get("detail", "")))
+    notes = [plain(n) for n in notes]
     findings.sort(key=lambda f: (lc.SEV_ORDER[f["severity"]], [k for k, _ in lc.AREAS].index(f["area"])))
     for area in ("phone", "search", "speed"):  # a category with a HIGH finding is never "Good"
         if scores.get(area) is not None and any(f["severity"] == "HIGH" and f["area"] == area for f in findings):

@@ -60,6 +60,11 @@ _jobs_lock = threading.Lock()
 JOB_ID = re.compile(r"[A-Za-z0-9_-]{20,40}")
 
 VARIANTS = {
+    "dev": {"h1": "Built your site with Claude Code or Cursor? See what's still broken.", "source": "",
+            "sub": "Free scan in under 20 s: phone layout, what Google & ChatGPT can't read, keys in your code. "
+                   "Then your AI fixes it.",
+            "sev": "MEDIUM", "ex": "Your page is wider than a phone screen, and Google sees no description",
+            "fix": "Fix: remove fixed widths wider than the screen and add a 120-160 character meta description."},
     "key": {"h1": "Is a secret key sitting in your site's code?", "source": "",
             "ex": "Anyone can see your Stripe secret key in your website's code",
             "fix": "Fix: move it to a server-side environment variable, then roll the key in Stripe."},
@@ -206,6 +211,7 @@ border-radius:12px;padding:13px 20px}.lc-buy:hover{background:#15803d}
 .lc-offer small{display:block;color:#475569;font-size:13px;margin-top:10px}
 .lc-cats{color:#475569;font-size:14px;font-weight:600;margin:-4px 0 12px}
 .lc-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lc-runs{margin:6px 2px 0;color:#475569;font-size:12.5px;line-height:1.4}
 .lc-choice{display:block;border-radius:14px;padding:14px 16px;text-decoration:none;font-size:14px}
 .lc-choice b{display:block;font-size:17px;margin-bottom:2px}.lc-choice span{opacity:.9}
 .lc-choice.p{background:#16a34a;color:#fff}.lc-choice.p:hover{background:#15803d}
@@ -228,7 +234,7 @@ def clean_src(raw):
     return raw if re.fullmatch(r"[a-z0-9_.-]{1,32}", raw) else ""
 
 
-def count(event, v="key", src=""):
+def count(event, v="dev", src=""):
     """Aggregate counters only: event name, landing variant, utm_source. Logged as one line for durability."""
     dim = f"v={variant(v)},src={clean_src(src) or '-'}"
     with _stats_lock:
@@ -244,10 +250,10 @@ def stats_json():
 
 
 def variant(v):
-    return v if v in VARIANTS else "key"
+    return v if v in VARIANTS else "dev"
 
 
-def shell(inner, nonce, v="key", extra_head="", script=""):
+def shell(inner, nonce, v="dev", extra_head="", script=""):
     h1 = VARIANTS[variant(v)]["h1"]
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -264,7 +270,7 @@ def shell(inner, nonce, v="key", extra_head="", script=""):
 </div></main>{script}</body></html>"""
 
 
-def page(nonce, v="key", url_value="", error="", src=""):
+def page(nonce, v="dev", url_value="", error="", src=""):
     v = variant(v)
     d = VARIANTS[v]
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
@@ -272,7 +278,7 @@ def page(nonce, v="key", url_value="", error="", src=""):
     inner = f"""<h1>{esc(d["h1"])}</h1>
 {err}<form method="post" action="/check" id="f">
 <input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
- placeholder="https://your-app.lovable.app" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
+ placeholder="https://your-app.com" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
 <input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">
 <button type="submit" id="b">Check my app — free</button>
 </form>
@@ -305,7 +311,7 @@ def progress_page(job_id, job, nonce):
 function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
 if(d.state==='done'||d.state==='error'||d.state==='gone'){{location.reload();}}else{{setTimeout(poll,1000);}}
 }}).catch(function(){{setTimeout(poll,2000);}});}}setTimeout(poll,1200);}})();</script>"""
-    return shell(inner, nonce, job.get("v", "key"), extra_head=head, script=script)
+    return shell(inner, nonce, job.get("v", "dev"), extra_head=head, script=script)
 
 
 KEY_RULES = ("supabase-found", "firebase-found")
@@ -350,9 +356,12 @@ def secret_banner(report):
 
 
 SINGLES = {  # live Agensi prices, checked 2026-10-21 ("price":19 on each skill page, 39 on the bundle)
-    "phone": ("single-design", "Fix the phone layout", "Website Design Auditor, $19"),
-    "search": ("single-geo", "Get found by Google & ChatGPT", "GEO + SEO Audit, $19"),
+    "phone": ("single-design", "Let my AI fix the phone layout — $19", "Website Design Auditor"),
+    "search": ("single-geo", "Let my AI fix Google & ChatGPT visibility — $19",
+               "GEO + SEO Audit: also writes your sitemap, JSON-LD and llms.txt"),
 }
+RUNS = ("Runs inside Claude Code, Cursor or Codex: your AI renders the page, fixes each issue and re-scores until "
+        "it passes.")
 CAT_LABEL = {"phone": "Phone layout", "search": "Google & ChatGPT", "speed": "Speed & basics",
              "security": "Security headers"}
 
@@ -366,7 +375,7 @@ def go(name, v, src):
     return f"/go/{name}?" + urlparse.urlencode({"v": variant(v), "src": clean_src(src)})
 
 
-def offer_block(report, v="key", src=""):
+def offer_block(report, v="dev", src=""):
     fix = other_items(report)
     n = len(fix)
     if not any(f["area"] in ("phone", "search", "speed") for f in fix):
@@ -384,29 +393,42 @@ def offer_block(report, v="key", src=""):
     choices = ""
     if lead:
         name, verb, product = SINGLES[lead]
-        choices += (f'<a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b>{esc(verb)}</b>'
-                    f'<span>{esc(product)}</span></a>')
-    kit_what = "Everything (design + Google & ChatGPT)" if search_ran else "Everything (design + SEO)"
-    choices += (f'<a class="lc-choice {"s" if lead else "p"}" href="{esc(go("kit", v, src))}" rel="noopener">'
-                f'<b>{esc(kit_what)}</b><span>Web + SEO kit, {KIT_PRICE}</span></a>')
+        choices += (f'<div><a class="lc-choice p" href="{esc(go(name, v, src))}" rel="noopener"><b>{esc(verb)}</b>'
+                    f'<span>{esc(product)}</span></a><p class="lc-runs">{RUNS}</p></div>')
+    kit_what = ("Design + Google & ChatGPT: Web + SEO kit (3 skills)" if search_ran
+                else "Design + SEO: Web + SEO kit (3 skills)")
+    choices += (f'<div><a class="lc-choice {"s" if lead else "p"}" href="{esc(go("kit", v, src))}" rel="noopener">'
+                f'<b>Fix everything with my AI — {KIT_PRICE}</b><span>{esc(kit_what)}</span></a>'
+                f'<p class="lc-runs">{RUNS}</p></div>')
     return (f'<section class="lc-offer"><h2>We found {n} thing{s} to fix before launch</h2>'
             f'<div class="lc-cats">{esc(cat_line)}</div><ul>{top}</ul><div class="lc-choices">{choices}</div>'
-            f'<small>Your AI runs the fixes · one-time · refund if it doesn\'t do what it says (Agensi guarantee)'
+            f'<small>Free: the list below says what is wrong. Paid: the skill does the fixing loop and writes the '
+            f'files (sitemap, JSON-LD, llms.txt). One-time · refund if it does not do what it says (Agensi guarantee).'
             f'</small></section>')
 
 
-def fix_prompt(report, v="key", src=""):
-    """Free fix list: any key items + the top 3 things to fix, then one line about the kit."""
+def fix_prompt(report, v="dev", src=""):
+    """Free list: WHAT is wrong (key items + top 3), one sentence each. Key items keep their fix (security is free)."""
     keys = key_items(report)
     fix = other_items(report)
-    text = scanner.lc.ai_prompt({**report, "fix_first": keys + fix[:3]})
+    items = keys + fix[:3]
+    if not items:
+        return ""
+    lines = [f"My site {report['final_url']} was checked before launch. Please fix these problems, in order, and "
+             "tell me what you changed:"]
+    for i, f in enumerate(items, 1):
+        where = f" (on {f['where']})" if f["where"] and f["area"] != "phone" and f not in keys else ""
+        sentence = f["title"] if f in keys else scanner.lc.short(f["title"], 140)
+        extra = f" {f['fix']}" if f in keys else ""
+        lines.append(f"{i}. {sentence}{where}.{extra}")
+    text = "\n".join(lines)
     if text and len(fix) > 3:
         text += (f"\n\nWant your AI to fix the other {len(fix) - 3} too? Web + SEO kit: "
                  f"{SITE}{go('kit-fixlist', v, src)}")
     return text
 
 
-def result_page(report, nonce, v="key", src=""):
+def result_page(report, nonce, v="dev", src=""):
     fix = other_items(report)
     n = len(fix)
     # the collapsed section shows exactly the things-to-fix list: one count everywhere
@@ -416,7 +438,7 @@ def result_page(report, nonce, v="key", src=""):
     top_n = min(3, n)
     keys_n = len(key_items(report))
     parts = ([f"{keys_n} key item{'s' if keys_n != 1 else ''}"] if keys_n else []) + ([f"top {top_n} of {n}"] if n else [])
-    title = "Free fix list for your AI" + (f" ({' + '.join(parts)})" if parts else "")
+    title = "Free: what is wrong" + (f" ({' + '.join(parts)})" if parts else "")
     ask = (f'<div class="ask"><div class="h">{esc(title)}</div>'
            f'<button id="lc-copy" type="button">Copy fix list for your AI</button><pre id="p">{esc(prompt)}</pre></div>'
            if prompt else "")
@@ -567,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
         path = parts.path
         if path == "/":
             q = urlparse.parse_qs(parts.query)
-            v = (q.get("v") or ["key"])[0]
+            v = (q.get("v") or ["dev"])[0]
             n = secrets.token_urlsafe(16)
             return self.send(200, page(n, v, src=(q.get("utm_source") or q.get("src") or [""])[0]), nonce=n,
                              cache="no-cache")
@@ -612,7 +634,7 @@ class Handler(BaseHTTPRequestHandler):
         go = re.fullmatch(r"/go/([a-z-]{1,20})", path)
         if go and go.group(1) in GO:
             q = urlparse.parse_qs(parts.query)
-            count("click:" + go.group(1), (q.get("v") or ["key"])[0], (q.get("src") or [""])[0])
+            count("click:" + go.group(1), (q.get("v") or ["dev"])[0], (q.get("src") or [""])[0])
             return self.send(302, "", extra={"Location": GO[go.group(1)]})
         if path == "/stats":
             token = (urlparse.parse_qs(parts.query).get("token") or [""])[0]
@@ -634,7 +656,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(413, "bad request", "text/plain; charset=utf-8")
         form = urlparse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
         url = (form.get("url") or [""])[0].strip()
-        v = variant((form.get("v") or ["key"])[0])
+        v = variant((form.get("v") or ["dev"])[0])
         src = clean_src((form.get("src") or [""])[0])
         n = secrets.token_urlsafe(16)
         try:

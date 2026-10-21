@@ -307,7 +307,7 @@ class ScriptScope(unittest.TestCase):
 class Presentation(unittest.TestCase):
     def test_variants_render(self):
         for v, needle in [("key", "secret key sitting"), ("stat", "Red Hunt Labs"), ("supabase", "service_role"),
-                          ("bogus", "secret key sitting"), ("devtools", "Press F12"), ("bill", "$82,314"), ("gemini", "40 minutes")]:
+                          ("bogus", "Claude Code or Cursor"), ("dev", "still broken"), ("devtools", "Press F12"), ("bill", "$82,314"), ("gemini", "40 minutes")]:
             with self.subTest(v=v):
                 self.assertIn(needle, app.page("n", v))
 
@@ -342,14 +342,16 @@ class Money(unittest.TestCase):
         self.assertIn("We found 5 things to fix before launch", html_)
         self.assertIn("Phone layout: 1", html_)
         self.assertIn("/go/single-design?v=bill&amp;src=reddit", html_)   # top finding is phone layout
-        self.assertIn("Website Design Auditor, $19", html_)
+        self.assertIn("Let my AI fix the phone layout — $19", html_)
+        self.assertIn("re-scores until it passes", html_)
+        self.assertIn("Fix everything with my AI — $39", html_)
         self.assertIn("/go/kit?v=bill&amp;src=reddit", html_)
         self.assertNotIn("Google &amp; ChatGPT)", html_)  # search area did not run in this report
         self.assertEqual(html_.count("<li>"), 3)
         ran = app.offer_block({**REPORT, "areas": {"search": {"score": 80}},
                                "findings": [_f("search", "HIGH", "No sitemap")]})
         self.assertIn("/go/single-geo?", ran)
-        self.assertIn("Everything (design + Google &amp; ChatGPT)", ran)
+        self.assertIn("Design + Google &amp; ChatGPT", ran)
 
     def test_offer_when_nothing_else(self):
         clean = {**REPORT, "findings": [REPORT["findings"][0]]}
@@ -370,6 +372,8 @@ class Money(unittest.TestCase):
                                           for k in ("security", "phone", "search", "speed")}}, "n")
         self.assertIn("We found 5 things", page)
         self.assertIn("top 3 of 5", page)
+        self.assertIn("Free: what is wrong", page)
+        self.assertNotRegex(page.split("<body>")[1].split("<script")[0], r"[\s(]--[a-z]{3,}")  # no CLI flags
         self.assertIn("All 5 things to fix", page)
         self.assertNotIn("Uneven spacing", page)  # LOW items are hidden
 
