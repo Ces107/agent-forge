@@ -93,6 +93,8 @@ def _browser_through_guard(module):
                 for f in findings:
                     if f["severity"] not in ("HIGH", "MED"):
                         continue
+                    if f["check"] == "images" and not re.search(r"stretched (\d{2,})%", f.get("detail", "")):
+                        continue  # missing alt/size is not visible on a screenshot
                     inview = [bx for bx in f.get("boxes", {}).get(width, [])[:3]
                               if bx and bx[1] <= 1560 and bx[2] >= 2 and bx[3] >= 2]
                     if inview:
