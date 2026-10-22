@@ -127,7 +127,7 @@ def jsonld_html(fix_files: dict) -> str:
     except ValueError:
         manifest = []
     parts = []
-    for item in manifest:
+    for item in sorted(manifest, key=lambda m: len(str(m.get("url", "")))):  # home page first
         body = fix_files.get(item.get("file", ""))
         if body:
             parts.append(f"<!-- {', '.join(item.get('types', []))} for {item.get('url', '')}: paste inside <head> -->\n"
@@ -390,32 +390,60 @@ def _blur_lines(n: int, widths=(34, 52, 41, 60, 27, 48, 56, 38)) -> str:
     return "\n".join("▆" * widths[i % len(widths)] for i in range(n))
 
 
+def preview_lines(name: str, text: str, report: dict) -> tuple[list[str], int]:
+    """What a card shows unlocked: the lines the site does NOT already have come first (no comments)."""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("<!--")]
+    new = 0
+    if name == "meta-tags.html":
+        pm = report.get("page_meta") or {}
+        have = set(pm.get("og") or {}) | {k for k in ("title", "description") if pm.get(k)}
+
+        def key(ln):
+            m = re.search(r'(?:property|name)="([^"]+)"', ln)
+            return m.group(1) if m else ("title" if ln.startswith("<title") else "canonical")
+        missing = [ln for ln in lines if key(ln) not in have and key(ln) != "canonical"]
+        new = len(missing)
+        lines = missing + [ln for ln in lines if ln not in missing]
+    return lines, new
+
+
 def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: str, demo: bool) -> str:
-    """The free page's view of the paid pack: real first lines, the rest blurred (and NOT in the HTML)."""
+    """The free page's view of the paid pack: problem #4 in full as proof, the lines each file adds, the rest blurred
+    (and NOT in the HTML). One count: n = the result page's problem list (top 3 free, the rest here)."""
     files = pack_files(report)
     steps = full_steps(report, files)
+    fix = scanner.things_to_fix(report["findings"])
+    n = len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or report["final_url"]
     cards = []
     for name, text in files.items():
-        lines = text.splitlines()
+        lines, missing = preview_lines(name, text, report)
         shown = "\n".join(lines[:3])
         hidden = max(0, len(lines) - 3)
-        cards.append(f'<div class="fp-file"><div class="fp-fn">{esc(name)} <span>{esc(FILE_ABOUT.get(name, ""))}</span>'
+        about = (f"{missing} tag{'s' if missing != 1 else ''} your page is missing, first"
+                 if missing else FILE_ABOUT.get(name, ""))
+        cards.append(f'<div class="fp-file"><div class="fp-fn">{esc(name)} <span>{esc(about)}</span>'
                      f'</div><pre>{esc(shown)}</pre>'
                      + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(hidden, 5))}</pre>'
                         f'<div class="fp-more">+{hidden} more line{"s" if hidden != 1 else ""}</div>' if hidden else "")
                      + "</div>")
-    spots = (f"{phone_more} more spot{'s' if phone_more != 1 else ''} marked"
-             if phone_more else "every problem marked")
+    proof = ""
+    if n > 3:
+        f4 = fix[3]
+        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #4 of {n}, unlocked as a sample</div>'
+                 f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
+                 + (f'<div class="fp-more">+{n - 4} more problem{"s" if n - 4 != 1 else ""} like this in the pack</div>'
+                    if n > 4 else "") + "</div>")
     thumbs = ('<div class="fp-thumbs" aria-hidden="true"><div class="fp-t fp-ph"></div><div class="fp-t fp-tab"></div>'
-              f'<div class="fp-t fp-desk"></div></div><div class="fp-tl">Phone · tablet · desktop renders, {esc(spots)}</div>')
+              '<div class="fp-t fp-desk"></div></div><div class="fp-tl">Phone · tablet · desktop renders, every problem '
+              'boxed</div>')
     first = esc(steps[0]) if steps else ""
-    prompt = (f'<div class="fp-prompt"><div class="fp-fn">The full fix prompt for Lovable, Bolt, Cursor or Claude Code '
-              f'<span>({len(steps)} steps)</span></div><pre>1. {first}</pre>'
+    prompt = (f'<div class="fp-prompt"><div class="fp-fn">One fix prompt for Lovable, Bolt, Cursor or Claude Code '
+              f'<span>(all {n} problems + where each file goes)</span></div><pre>1. {first}</pre>'
               + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(len(steps) - 1, 5))}</pre>'
                  if len(steps) > 1 else "") + "</div>")
     if CHECKOUT_ON:
-        label = (f"Unlock all {len(steps)} fix steps" if len(steps) > 1 else "Get my Fix Pack")
+        label = f"Get all {n} fixes" if n > 3 else "Get my Fix Pack"
         button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">{label} '
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · re-scan free for 7 days · refund if it doesn\'t '
@@ -424,9 +452,11 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
         button = ('<a class="fp-buy" href="/fix/demo">See a sample Fix Pack</a>'
                   f'<div class="fp-terms">Checkout opens soon · launch price {PRICE} <s>{PRICE_WAS}</s> · one-time · '
                   'instant download · re-scan free for 7 days · refund if it doesn\'t help</div>')
-    return (f'<section class="fp"><h2>Your Fix Pack for {esc(host)}</h2>'
-            f'<p class="fp-sub">Generated for your site: the files, the renders and the prompt. Locked until checkout.</p>'
-            f'<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">{proof_line()}{button}</div></section>')
+    sub = (f"{n} problems found: 3 free above, all {n} fixed here, plus the files your site is missing."
+           if n > 3 else "Generated for your site: the files, the renders and the prompt.")
+    return (f'<section class="fp"><h2>Your Fix Pack for {esc(host)}</h2><p class="fp-sub">{esc(sub)} Locked until '
+            f'checkout.</p>{proof}<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">'
+            f'{proof_line()}{button}</div></section>')
 
 
 FP_CSS = """
@@ -445,6 +475,8 @@ max-height:none}
 .fp-ph{width:58px;height:110px}.fp-tab{width:110px;height:140px}.fp-desk{width:220px;height:130px}
 .fp-tl{font-size:14px;font-weight:700;color:#c2410c;margin-bottom:12px}
 .fp-prompt{margin-bottom:16px}
+.fp-next{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:10px 12px;margin:0 0 12px}
+.fp-next p{margin:4px 0;font-size:14px}
 .fp-cta{text-align:center}
 .fp-proof{font-size:14px;color:#14532d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 12px;margin:0 0 12px}
 .fp-buy{display:inline-block;background:#16a34a;color:#fff;border:0;border-radius:14px;padding:16px 28px;font:inherit;

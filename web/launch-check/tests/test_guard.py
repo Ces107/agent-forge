@@ -586,7 +586,7 @@ class PhoneFunnel(unittest.TestCase):
                                       _f("search", "MEDIUM", "No llms", "search-llms"),
                                       _f("speed", "MEDIUM", "No desc", "desc-missing"),
                                       _f("phone", "MEDIUM", "Images missing a size", "phone-images")]}
-        self.assertEqual(app.phone_marks(rep), {"images": "4"})  # not in the top 3: still boxed, with its number
+        self.assertEqual(app.phone_marks(rep), {"images": 4})  # not in the top 3: still boxed, with its number
         self.assertEqual(app.phone_marks({**REPORT, "findings": [_f("search", "HIGH", "x", "search-x")]}), {})
 
     def test_invisible_image_issues_never_lead(self):
@@ -607,17 +607,40 @@ class PhoneFunnel(unittest.TestCase):
         stats = {"mode": "marks", "legend": [{"n": 1, "key": "contrast"}, {"n": 2, "key": "tap-target"}],
                  "boxed": 4, "total": 15}
         html_ = app.phone_slot(rep, "J" * 24, "done", stats)
-        self.assertIn("+11 more spots on your page", html_)
+        self.assertNotIn("spots", html_)  # one count on the page: problems, never render spots
         self.assertIn("<b>#1</b> Some text is hard to read", html_)
         self.assertIn("<b>#2</b> Some buttons or links are too small", html_)
         self.assertNotIn("#!", html_)
-        self.assertIn("Fix Pack $9", html_)
+        self.assertIn("$9", html_)
+        five = {**REPORT, "findings": rep["findings"] + [_f("search", "MEDIUM", f"Search {i}", f"search-x{i}")
+                                                         for i in range(3)]}
+        more = app.phone_slot(five, "J" * 24, "done", {**stats, "legend": [{"n": 1, "key": "contrast"},
+                                                                            {"n": 5, "key": "tap-target"}]})
+        self.assertIn("2 more problems in your Fix Pack", more)
+        self.assertIn('<b>#5</b> Some buttons or links are too small to tap with a thumb <span class="lc-inpk">', more)
         self.assertNotIn("No phone layout problems", html_)
         clean = app.phone_slot(rep, "J" * 24, "done", {"mode": "clean", "legend": [], "boxed": 0, "total": 0})
         self.assertIn("No phone layout problems found", clean)
         bot = app.phone_slot(rep, "J" * 24, "botcheck", {"mode": "botcheck"})
         self.assertIn("showed a bot check to our browser", bot)
         self.assertEqual(app.phone_slot(rep, "J" * 24, "none"), "")
+
+    def test_locked_preview_one_count_missing_tags_first_and_a_sample_fix(self):
+        fs = [_f("phone", "MEDIUM", f"Phone {i}", f"phone-x{i}") for i in range(5)]
+        rep = {**REPORT, "findings": fs, "page_meta": {"title": "A", "description": "B", "og": {"og:title": "A"}}}
+        real = fixpack.CHECKOUT_ON
+        fixpack.CHECKOUT_ON = True
+        try:
+            html_ = fixpack.locked_preview(rep, "J" * 24, None, "https://x", demo=False)
+        finally:
+            fixpack.CHECKOUT_ON = real
+        self.assertIn("Get all 5 fixes", html_)
+        self.assertIn("Problem #4 of 5, unlocked as a sample", html_)
+        self.assertNotIn("spots", html_)
+        lines, missing = fixpack.preview_lines("meta-tags.html", fixpack.meta_tags_html(rep), rep)
+        self.assertGreater(missing, 0)
+        self.assertNotIn("og:title", " ".join(lines[:missing]))  # the page already has it: not shown first
+        self.assertIn("og:", lines[0])
 
 
 class Presentation(unittest.TestCase):

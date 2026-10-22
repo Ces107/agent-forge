@@ -88,10 +88,12 @@ def _browser_through_guard(module):
     import json
     import os
     import re
-    web = "LC_MARKS" in os.environ  # free phone render: box the listed problems, then fill to at least 2
-    order = json.loads(os.environ.get("LC_MARKS") or "[]")
-    if isinstance(order, dict):  # older {key: label} form
-        order = sorted(order, key=lambda k: order[k])
+    web = "LC_MARKS" in os.environ  # free phone render: box the listed problems, numbered as in the result's list
+    ranks = json.loads(os.environ.get("LC_MARKS") or "{}")
+    if isinstance(ranks, list):  # older [key, ...] form
+        ranks = {k: i + 1 for i, k in enumerate(ranks)}
+    ranks = {k: int(v) for k, v in ranks.items()}
+    order = sorted(ranks, key=ranks.get)
     state = {"botcheck": False}
     clip_h = 812 if web else 1600
 
@@ -147,29 +149,16 @@ def _browser_through_guard(module):
             elif web:
                 doc_h = page.evaluate("() => document.documentElement.scrollHeight")
                 y0 = best_window(spots, width, doc_h)
-                used = set()
-                for key in order:  # the free list's phone problems first, in its order
+                for key in order:  # only problems from the result's list, with its numbers: the free top 3 first,
+                    if ranks[key] > 3 and len(legend) >= 2:  # then later ones until at least 2 are boxed
+                        break
                     fs = [f for f in spots if key_of(f) == key]
                     got = [bx for f in fs for bx in boxes_in_view(f, width, 3, y0)][:3]
                     if got:
-                        n = len(legend) + 1
+                        n = ranks[key]
                         marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
                         legend.append({"n": n, "key": key, "detail": fs[0].get("detail", "")})
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
-                        used.add(key)
-                for f in spots:  # then the render's most important visible spots, until at least 2 are boxed
-                    if len(legend) >= 2:
-                        break
-                    key = key_of(f)
-                    if key in used or key == "images":
-                        continue
-                    got = boxes_in_view(f, width, 3, y0)
-                    if got:
-                        n = len(legend) + 1
-                        marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
-                        legend.append({"n": n, "key": key, "detail": f.get("detail", "")})
-                        boxed += 1
-                        used.add(key)
                 mode = "marks" if legend else ("clean" if not spots else "unboxed")
             else:
                 mode = "all"

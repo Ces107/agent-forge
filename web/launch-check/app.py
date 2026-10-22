@@ -593,13 +593,11 @@ def phone_section(report):
 
 
 def phone_marks(report):
-    """Which problems to box first, in the order of the free list (the render then fills up to 2 boxes)."""
-    fix = other_items(report)
-    marks = {f["rule"][6:]: str(i + 1) for i, f in enumerate(fix[:3]) if f["area"] == "phone"}
-    if not marks:
-        first = next(((i, f) for i, f in enumerate(fix) if f["area"] == "phone"), None)
-        if first:
-            marks = {first[1]["rule"][6:]: str(first[0] + 1)}
+    """{phone key: rank in the problem list} for every phone problem: the render boxes only these, with these numbers."""
+    marks = {}
+    for i, f in enumerate(other_items(report)):
+        if f["area"] == "phone":
+            marks.setdefault(f["rule"][6:], i + 1)
     return marks
 
 
@@ -618,15 +616,17 @@ def phone_counts(stats):
             "total": total, "lower": int(stats.get("y0", 0) or 0) > 0}
 
 
-def fixpack_cta(job_id, more):
-    spots = (f"+{more} more spot{'s' if more != 1 else ''} on your page · every one boxed on phone, tablet and desktop"
-             if more else "Every spot boxed on phone, tablet and desktop")
+def fixpack_cta(job_id, n):
+    """One count everywhere: n = the problem list's length (3 free, the rest in the pack)."""
+    more = (f"{n - 3} more problem{'s' if n - 3 != 1 else ''} in your Fix Pack · every one boxed on phone, tablet and "
+            f"desktop" if n > 3 else "Fix Pack: every fix boxed on phone, tablet and desktop, with the files")
     if fixpack.CHECKOUT_ON and job_id:
-        button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy fp-sm" type="submit">Get my Fix '
-                  f'Pack — {fixpack.PRICE}</button></form>')
+        label = f"Get all {n} fixes" if n > 3 else "Get my Fix Pack"
+        button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy fp-sm" type="submit">{label} '
+                  f'— {fixpack.PRICE}</button></form>')
     else:
         button = '<a class="fp-buy fp-sm" href="/fix/demo">See a sample Fix Pack</a>'
-    return (f'<div class="lc-side"><p class="lc-more" id="lc-more">{esc(spots)} · Fix Pack {fixpack.PRICE} (refund if it '
+    return (f'<div class="lc-side"><p class="lc-more" id="lc-more">{esc(more)} · {fixpack.PRICE} (refund if it '
             f'doesn\'t help)</p>{fixpack.proof_line()}{button}</div>')
 
 
@@ -641,7 +641,10 @@ def phone_slot(report, job_id, state, stats=None):
         return ('<section class="lc-phone lc-phs"><b>Your site showed a bot check to our browser, so we couldn\'t render '
                 'it.</b> The scan above still read your page code.</section>')
     counts = phone_counts(stats)
-    legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}</li>' for x in counts.get("legend", []))
+    n = len(other_items(report))
+    legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}'
+                     + (' <span class="lc-inpk">in your Fix Pack</span>' if x["n"] > 3 else "") + '</li>'
+                     for x in counts.get("legend", []))
     mode = counts.get("mode")
     note = ""
     if state == "done" and mode == "clean":
@@ -650,17 +653,14 @@ def phone_slot(report, job_id, state, stats=None):
         note = "The problems found are further down the page."
     elif state == "done" and counts.get("lower"):
         note = "Your first screen had no problems; this is the part of the page further down where they start."
-    elif state == "done" and mode == "fallback":
-        note = "Your top 3 aren't on this screen, so the boxes show the first other spots we found."
-    bx = (f"Rendered in a real phone browser (375 px). Boxed: {counts['boxed']} of {counts['total']} spots."
-          if state == "done" and counts.get("total") else "Rendered in a real phone browser (375 px). Boxes:")
+    bx = "Rendered in a real phone browser (375 px). Numbers match the problem list."
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
     wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn" id="lc-bx">'
             f'{esc(bx)}</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
-            f'{esc(note)}</p>{fixpack_cta(job_id, counts.get("more", 0))}</div></div></section>')
+            f'{esc(note)}</p>{fixpack_cta(job_id, n)}</div></div></section>')
 
 
 def summary_of(report, job):
@@ -713,14 +713,12 @@ function poll(){n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json()
 if(d.state==='done'){var i=document.getElementById('lc-pi');i.onload=function(){i.hidden=false;
 var w=document.getElementById('lc-pw');if(w)w.remove();var leg=document.getElementById('lc-leg');leg.textContent='';
 (d.legend||[]).forEach(function(x){var li=document.createElement('li');var b=document.createElement('b');b.textContent='#'+x.n;
-li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));leg.appendChild(li);});
+li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));if(x.n>3){var k=document.createElement('span');
+k.className='lc-inpk';k.textContent='in your Fix Pack';li.appendChild(document.createTextNode(' '));li.appendChild(k);}
+leg.appendChild(li);});
 var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
 if(d.mode==='unboxed')note.textContent='The problems found are further down the page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
-if(d.mode==='fallback')note.textContent='Your top 3 aren’t on this screen, so the boxes show the first other spots we found.';
-var bx=document.getElementById('lc-bx');if(bx&&d.total)bx.textContent='Rendered in a real phone browser (375 px). Boxed: '+d.boxed+' of '+d.total+' spots.';
-var mo=document.getElementById('lc-more');if(mo){mo.textContent=(d.more>0?'+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page \u00b7 every one boxed on phone, tablet and desktop':'Every spot boxed on phone, tablet and desktop')+' \u00b7 Fix Pack $9 (refund if it doesn\u2019t help)';}
-var tl=document.querySelector('.fp-tl');if(tl&&d.more>0){tl.textContent='Phone \u00b7 tablet \u00b7 desktop renders, '+d.more+' more spot'+(d.more===1?'':'s')+' marked';}
 };i.onerror=function(){fail();};i.src=u+'.jpg';}
 else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site showed a bot check to our browser, so we couldn\u2019t render it.</b> The scan still read your page code.';}
 else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{fail();}}).catch(function(){fail();});}
@@ -759,19 +757,6 @@ if(navigator.clipboard&&navigator.clipboard.writeText){{navigator.clipboard.writ
 function fallback(){{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();
 try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();
 {PHONE_POLL_JS}</script>"""
-    _unused = f"""<script nonce="{nonce}">
-(function(){{var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
-var u=s.getAttribute('data-u'),n=0;function poll(){{n++;fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}})
-.then(function(d){{if(d.state==='done'){{var i=document.getElementById('lc-pi');i.onload=function(){{i.hidden=false;
-var w=document.getElementById('lc-pw');if(w)w.remove();var m=d.matched||[];
-if(d.mode==='fallback'){{var fb=document.getElementById('lc-fb');fb.querySelector('span').textContent=d.fallback;fb.hidden=false;}}
-if(d.mode==='clean'){{document.getElementById('lc-clean').hidden=false;}}
-document.querySelectorAll('#lc-ps li[data-l]').forEach(function(li){{if(m.indexOf(li.getAttribute('data-l'))<0)li.hidden=true;}});
-var mo=document.getElementById('lc-more');if(mo&&d.more>0){{mo.textContent='+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page';mo.hidden=false;}}
-var tl=document.querySelector('.fp-tl');if(tl&&d.more>0){{tl.textContent='Phone · tablet · desktop renders, '+d.more+' more spot'+(d.more===1?'':'s')+' marked';}}
-}};i.onerror=function(){{s.remove();}};i.src=u+'.jpg';}}
-else if(d.state==='rendering'&&n<75){{setTimeout(poll,2000);}}else{{s.remove();}}}}).catch(function(){{s.remove();}});}}
-setTimeout(poll,3000);}})();</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
     doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + fixpack.FP_CSS + RESULT_CSS
                       + '</style><meta name="robots" content="noindex"><link rel="icon" href="/favicon.svg" '
@@ -779,8 +764,8 @@ setTimeout(poll,3000);}})();</script>"""
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Free scan: phone findings come from the page code (1 screen "
-                      "size); the phone screenshot is a real browser render. This page link keeps the score, the top 3 and "
-                      "the phone render for 14 days; the full report stays only while the scan is fresh."
+                      "size); the phone screenshot is a real browser render. This page link works for 14 days: opening it later "
+                      "re-checks your site, so it always shows today's result."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
@@ -793,7 +778,7 @@ RESULT_CSS = """
 .lc-top3 h2{font-size:20px;margin:0 0 8px}.lc-top3 ol{margin:0 0 12px;padding-left:22px;font-size:16px;font-weight:600}
 .lc-top3 li{margin:4px 0}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
 .lc-side{margin-top:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:12px 14px}
-.lc-side .lc-more{margin:0 0 10px;color:#14532d}.fp-sm{font-size:16px!important;padding:11px 18px!important}
+.lc-side .lc-more{margin:0 0 10px;color:#14532d}.lc-inpk{font-size:12px;color:#c2410c;font-weight:700}.fp-sm{font-size:16px!important;padding:11px 18px!important}
 .lc-then{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 16px;margin:0 0 14px;font-size:16px}
 """
 
@@ -1358,7 +1343,7 @@ def main():
 
 def warm_demo():
     """Build the sample Fix Pack shortly after boot, so the first visitor to /fix/demo doesn't wait ~70 s."""
-    time.sleep(45)
+    time.sleep(8)
     job = demo_job()
     for _ in range(60):
         if job_state(job) in ("done", "error"):
