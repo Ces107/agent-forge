@@ -534,7 +534,8 @@ def things_to_fix(findings):
     phone layout and Google/ChatGPT first, security headers last."""
     items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)
              and f["rule"] not in STYLE_RULES]
-    return sorted(items, key=lambda f: (f["rule"] in DEMOTED, FIX_ORDER.index(f["area"]), lc.SEV_ORDER[f["severity"]]))
+    return sorted(items, key=lambda f: (f["rule"] in DEMOTED, FIX_ORDER.index(f["area"]), f.get("boxed", 99),
+                                        lc.SEV_ORDER[f["severity"]]))  # boxed on the phone render: #1, #2
 
 
 DEMOTED = {"phone-images"}  # missing alt/size is real but invisible: never ahead of visible problems

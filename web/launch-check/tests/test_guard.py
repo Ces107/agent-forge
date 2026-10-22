@@ -607,6 +607,26 @@ class DesignOnly(unittest.TestCase):
         self.assertIn("Not checked on this link", app.secret_banner(rep))
 
 
+class RenderFirst(unittest.TestCase):
+    def test_render_findings_replace_page_code_guesses(self):
+        rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Fixed width", "phone-fixed-width"),
+                                      _f("search", "MEDIUM", "No sitemap", "search-sitemap-missing"),
+                                      _f("security", "MEDIUM", "No CSP", "csp-missing")]}
+        stats = {"mode": "marks", "legend": [{"n": 1, "key": "tap-target", "detail": "tap target 112x21 px"},
+                                             {"n": 2, "key": "contrast", "detail": "contrast 3.65:1"}],
+                 "kinds": [{"key": "contrast", "sev": "MED", "detail": "contrast 3.65:1", "fix": "color: #333", "count": 3},
+                           {"key": "tap-target", "sev": "LOW", "detail": "tap target 112x21 px", "fix": "min-height:44px"},
+                           {"key": "overlap", "sev": "MED", "detail": "x", "fix": "y"}]}
+        app.merge_render(rep, stats)
+        items = app.other_items(rep)
+        self.assertEqual([f["rule"] for f in items[:3]], ["phone-tap-target", "phone-contrast", "phone-overlap"])
+        self.assertNotIn("phone-fixed-width", [f["rule"] for f in items])  # the page-code guess is gone
+        self.assertEqual(items[0]["severity"], "MEDIUM")  # boxed problems are always on the list
+        burns = app.roast_lines(app.roast_items(rep))
+        self.assertEqual(len(burns), len(set(burns)))
+        self.assertIn("21 px", burns[0])
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),

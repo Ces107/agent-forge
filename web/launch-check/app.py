@@ -63,6 +63,7 @@ QUEUE_WAIT = 40                         # seconds a scan may wait for a free sca
 JOB_TTL = 6 * 3600                      # finished reports stay in memory this long (oldest evicted when full)
 JOB_MAX = 300
 STUCK_AFTER = scanner.BUDGET + 40       # a job still running after this is reported as failed
+RENDER_WAIT = float(os.environ.get("LC_RENDER_WAIT", "75"))  # the result waits this long for the real phone render
 MAX_BODY = 4096
 _hits: dict[str, deque] = defaultdict(deque)
 _hits_lock = threading.Lock()
@@ -447,13 +448,16 @@ document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.tex
 def progress_page(job_id, job, nonce):
     host = esc(job.get("host", "your site"))
     waiting = job["state"] == "queued"
-    inner = f"""<div class="prog" role="status"><b>{'Waiting for a free scanner…' if waiting else f'Checking {host}…'}</b>
+    rendering = job["state"] == "rendering"
+    what = ("Waiting for a free scanner…" if waiting else f"Opening {host} in a real phone browser…" if rendering
+            else f"Checking {host}…")
+    inner = f"""<div class="prog" role="status"><b>{what}</b>
 <div class="bar" aria-hidden="true"><i></i></div>
-<p>Usually 10–20 s. This page updates by itself.</p></div>"""
+<p>{'Marking what is broken on the screen. Under a minute.' if rendering else 'Usually 10–20 s.'} This page updates by itself.</p></div>"""
     head = f'<noscript><meta http-equiv="refresh" content="3"></noscript><meta name="robots" content="noindex">'
     script = f"""<script nonce="{nonce}">(function(){{var u='/r/{job_id}/status';
 function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
-if(d.state==='done'||d.state==='error'||d.state==='gone'){{location.reload();}}else{{setTimeout(poll,1000);}}
+if(d.state==='done'||d.state==='error'||d.state==='gone'){{location.reload();}}else{{if(d.state==='rendering'){{var b=document.querySelector('.prog b');if(b)b.textContent='Opening your site in a real phone browser…';}}setTimeout(poll,1000);}}
 }}).catch(function(){{setTimeout(poll,2000);}});}}setTimeout(poll,1200);}})();</script>"""
     return shell(inner, nonce, job.get("v", "dev"), extra_head=head, script=script)
 
@@ -472,8 +476,9 @@ def secret_banner(report):
     if assets.get("keys_off"):
         return ('<section class="lc-key k-mid"><h1>Is a secret key showing?</h1><div class="lc-ans"><div class="lc-ico" '
                 'aria-hidden="true">?</div><div><b>Not checked on this link</b><div class="lc-scope">This link was made '
-                'for someone else\'s site, so only design and search were checked. Your site? <a href="/?v=launch">'
-                'Check it yourself</a> for exposed keys too.</div></div></div></section>')
+                'for someone else\'s site, so we did not look for keys in its code; everything else here comes from '
+                'what any visitor\'s browser receives. Your site? <a href="/?v=launch">Check it yourself</a> for '
+                'exposed keys too.</div></div></div></section>')
     n, off = assets.get("scanned", 0), assets.get("skipped_offsite", 0)
     red = [f for f in items if f["severity"] == "HIGH" and f["rule"].startswith("secret-")]
     s = lambda k: "s" if k != 1 else ""  # noqa: E731
@@ -580,7 +585,7 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
     "phone-tap-target": "Your buttons are so small only ants can tap them.",
     "phone-contrast": "Your text is playing hide-and-seek with the background. The background is winning.",
     "phone-overflow": "Your page is wider than the phone. Sideways scrolling: very 2009.",
-    "phone-fixed-width": "Parts of your page refuse to fit on a phone. Bold of them.",
+    "phone-fixed-width": "Parts of your page are wider than the phone, so it wobbles sideways.",
     "phone-viewport-meta": "No viewport tag: on a phone your site is a postage stamp.",
     "phone-overlap": "Your text is stacking on top of other text. It's crowded in there.",
     "phone-clipped": "Some of your words got cut off. They had so much to say.",
@@ -643,18 +648,23 @@ def fact_line(rule, title, detail):
     if rule in ("phone-fixed-width", "phone-overflow"):
         m = re.search(r"\((\d+) places\)", t)
         if m:
-            return f"{m.group(1)} parts of your page refuse to fit on a phone."
+            return f"{m.group(1)} parts of your page are wider than the phone, so it wobbles sideways."
     return ""
 
 
 def roast_lines(items):
     """items = [(rule, title[, detail])] in list order -> up to 3 burns, each one a real finding (own numbers first)."""
-    burns = []
+    burns, used = [], set()
     for item in items:
         rule, title, detail = (tuple(item) + ("",))[:3]
+        if rule == "phone-tap-target":  # a near-miss (30-43 px) is real but too petty to roast
+            m = re.search(r"(\d+)x(\d+) px", f"{title} {detail}")
+            if m and min(int(m.group(1)), int(m.group(2))) >= 30:
+                continue
         line = fact_line(rule, title, detail) or ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
-        if not line or any(line.split(".")[0] == b.split(".")[0] for b in burns):
+        if not line or rule in used or line in burns:
             continue
+        used.add(rule)
         burns.append(line)
         if len(burns) == 3:
             break
@@ -886,7 +896,9 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     n = len(fix)
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
-    top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}</li>" for f in fix[:3])
+    top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
+                   + (f'<small class="lc-fx">{esc(scanner.lc.short(f["fix"], 220))}</small>' if f.get("boxed") and f.get("fix")
+                      else "") + "</li>" for f in fix[:3])
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
             f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
@@ -943,7 +955,7 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
 RESULT_CSS = """
 .lc-top3{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px 24px;margin:0 0 14px}
 .lc-top3 h2{font-size:20px;margin:0 0 8px}.lc-top3 ol{margin:0 0 12px;padding-left:22px;font-size:16px;font-weight:600}
-.lc-top3 li{margin:4px 0}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
+.lc-top3 li{margin:4px 0}.lc-fx{display:block;font-weight:500;font-size:13px;color:#475569;font-family:Consolas,monospace}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
 .lc-side{margin-top:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:12px 14px}
 .lc-side .lc-more{margin:0 0 10px;color:#14532d}.lc-inpk{font-size:12px;color:#c2410c;font-weight:700}.fp-sm{font-size:16px!important;padding:11px 18px!important}
 .lc-then{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 16px;margin:0 0 14px;font-size:16px}
@@ -1008,7 +1020,18 @@ def start_job(url, v, src="", job_id=None, keep=False, keys=True):
             job.update(state="running", started=time.time())
             report = scanner.scan(url, keys=job.get("keys", True))
             report["job"] = job_id  # stamped: the page refuses to show a report from any other job
-            start_phone(job, report)  # before "done", so the first result page already shows "rendering"
+            if scanner.RENDER_MODE == "async" and RENDER_WAIT > 0 and scanner.render_slot_free():
+                # the result waits for the real phone render, and its list is built from what the browser saw
+                job.update(state="rendering", report=report)
+                try:
+                    out = scanner.render_phone(report["final_url"], {}, budget=RENDER_WAIT, listn=0)
+                except Exception:  # never break the result
+                    out = None
+                job["phone"] = phone_state_from(out)
+                if job["phone"]["state"] == "done":
+                    merge_render(report, job["phone"]["stats"])
+            else:
+                start_phone(job, report)  # before "done", so the first result page already shows "rendering"
             job.update(state="done", report=report)
             count("scans_done", job["v"], job["src"])
             sm = summary_of(report, job)
@@ -1047,6 +1070,34 @@ def start_phone(job, report):
 
     threading.Thread(target=work, daemon=True).start()
     return True
+
+
+KEEP_STATIC = {"phone-viewport-meta", "phone-images"}  # read from the page code reliably; the rest comes from the render
+
+
+def merge_render(report, stats):
+    """Replace the page-code guesses about phone layout with what the real browser measured (boxed ones first)."""
+    kinds = stats.get("kinds") or []
+    if not kinds and stats.get("mode") not in ("clean",):
+        return
+    boxed = {x["key"]: int(x["n"]) for x in stats.get("legend") or []}
+    report["findings"] = [f for f in report["findings"] if f["area"] != "phone" or f["rule"] in KEEP_STATIC]
+    have = {f["rule"] for f in report["findings"]}
+    for k in kinds:
+        rule = "phone-" + k["key"]
+        if rule in have or rule in scanner.STYLE_RULES:
+            continue
+        sev = {"HIGH": "HIGH", "MED": "MEDIUM"}.get(k.get("sev"), "LOW")
+        if k["key"] in boxed and sev == "LOW":
+            sev = "MEDIUM"  # what the picture shows is always on the list
+        n = int(k.get("count", 1))
+        f = scanner.lc.finding("phone", rule, sev, plain_phone(k["key"], k.get("detail", "")) + (f" ({n} places)" if n > 1 else ""),
+                               k.get("fix") or "", detail=k.get("detail", ""))
+        if k["key"] in boxed:
+            f["boxed"] = boxed[k["key"]]
+        report["findings"].append(f)
+        have.add(rule)
+    report["phone_measured"] = True
 
 
 def job_state(job):
@@ -1141,11 +1192,13 @@ def roast_png(host, score, burns, phone_jpg=None):
     d.text((x + (90 if score < 10 else 170 if score < 100 else 250), 175), "/100", font=_font(40), fill=(148, 163, 184))
     y = 270
     width = 34 if x > 300 else 48
-    for b in burns[:2]:
-        for line in textwrap.wrap(b, width)[:3]:
-            d.text((x, y), line, font=_font(30), fill=(241, 245, 249))
-            y += 40
-        y += 18
+    for b in burns[:3]:  # the same three burns as the page
+        for line in textwrap.wrap(b, width + 6)[:3]:
+            if y > 520:
+                break
+            d.text((x, y), line, font=_font(25), fill=(241, 245, 249))
+            y += 33
+        y += 12
     d.text((x, 560), f"Get roasted: {urlparse.urlsplit(SITE).hostname}/roast", font=_font(22), fill=(148, 163, 184))
     buf = _io.BytesIO()
     img.save(buf, "PNG", optimize=True)

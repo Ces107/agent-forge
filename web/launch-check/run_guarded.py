@@ -137,6 +137,8 @@ def _browser_through_guard(module):
         out = {}
         shots_dir.mkdir(parents=True, exist_ok=True)
         spots = [f for f in findings if f["check"] not in STYLE_CHECKS]
+        if web:  # near-1:1 "contrast" is an icon or a decorative element, not text anyone reads: never shown
+            spots = [f for f in spots if not (f["check"] == "contrast" and re.search(r"\b1\.[0-2]\d?:1", f.get("detail", "")))]
         if not web:  # paid renders: number the boxed problems 1..N with no gaps (style notes are never boxed)
             for i, f in enumerate(spots):
                 f["rank"] = i + 1
@@ -146,6 +148,7 @@ def _browser_through_guard(module):
         for width, page in pages.items():
             marks = []
             legend = []
+            kinds = {}
             boxed = 0
             if state["botcheck"]:
                 mode = "botcheck"
@@ -164,7 +167,8 @@ def _browser_through_guard(module):
                     if got:
                         n = ranks[key]
                         marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
-                        legend.append({"n": n, "key": key, "detail": fs[0].get("detail", "")})
+                        legend.append({"n": n, "key": key, "detail": fs[0].get("detail", ""),
+                                       "fix": fs[0].get("fix", ""), "sev": fs[0]["severity"]})
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
                 extra = listn  # problems only the real render sees: they join the list as #N+1, #N+2 (paid pack)
                 for f in spots:
@@ -177,9 +181,16 @@ def _browser_through_guard(module):
                     if got:
                         extra += 1
                         marks += [{"box": bx, "label": "#%d" % extra, "color": "#dc2626"} for bx in got]
-                        legend.append({"n": extra, "key": key, "detail": f.get("detail", ""), "x": 1})
+                        legend.append({"n": extra, "key": key, "detail": f.get("detail", ""), "fix": f.get("fix", ""),
+                                       "sev": f["severity"], "x": 1 if listn else 0})
                         boxed += 1
                 mode = "marks" if legend else ("clean" if not spots else "unboxed")
+                for f in spots:  # every kind of problem the real browser saw (the result list is built from these)
+                    key = key_of(f)
+                    if visible_spot(f) or key == "images":
+                        k = kinds.setdefault(key, {"key": key, "sev": f["severity"], "detail": f.get("detail", ""),
+                                                   "fix": f.get("fix", ""), "count": 0})
+                        k["count"] += max(1, int(f.get("count", 1)))
             else:
                 mode = "all"
                 for f in spots:
@@ -190,6 +201,7 @@ def _browser_through_guard(module):
                 y0 = 0
             (shots_dir / ("marks-%d.json" % width)).write_text(json.dumps({
                 "mode": mode, "legend": legend, "boxed": boxed, "total": len(spots), "y0": y0,
+                "kinds": list(kinds.values()),
                 "style": [f.get("detail", "") for f in findings if f["check"] in STYLE_CHECKS][:20]}), encoding="utf-8")
             if web:
                 (shots_dir / "marks.json").write_text((shots_dir / ("marks-%d.json" % width)).read_text(encoding="utf-8"),
