@@ -93,7 +93,7 @@ VARIANTS = {
                  "ex": "Your Supabase service_role key is in your website's code: anyone can read and change your database",
                  "fix": "Fix: use the anon key in the browser, keep service_role on the server only, and rotate it."},
     "devtools": {"h1": "Press F12 on your site. Is your API key in there?", "source": "",
-                 "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, nothing stored.",
+                 "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, no account.",
                  "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
                  "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
     "polish": {"h1": "Does your AI-built site look unfinished?", "source": "",
@@ -114,7 +114,7 @@ VARIANTS = {
                "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
                "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
-SUB ="See the result usually in under 20 seconds. Free, no signup, nothing stored."
+SUB ="See the result usually in under 20 seconds. Free, no signup, no account."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
@@ -123,7 +123,7 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect wi
 
 DESC = ("Free check for apps built with Lovable, Bolt, v0, Replit or Cursor: secret keys in your site's code, "
         "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. Usually under 20 seconds, no signup, "
-        "nothing stored.")
+        "no account.")
 
 CSS = """
 :root{--ink:#0b1220;--mut:#5b6678;--line:#e3e8ef;--bg:#f6f8fb;--card:#fff;--acc:#16a34a;--acc2:#22c55e;--red:#dc2626}
@@ -427,7 +427,7 @@ def page(nonce, v="dev", url_value="", error="", src="", autostart=False):
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
 <div class="sub">{esc(d.get("sub", SUB))}</div>
-<div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · nothing stored · not a penetration test</div>
+<div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · results deleted after 14 days · not a penetration test</div>
 <div class="biz">Free scan. Fix Pack $9 when you want every fix.</div>
 {src_html}
 {example}"""
@@ -610,9 +610,10 @@ def phone_counts(stats):
     if not stats:
         return {}
     total, boxed = int(stats.get("total", 0)), int(stats.get("boxed", 0))
-    legend = [{"n": int(x.get("n", i + 1)), "title": plain_phone(x.get("key", ""), x.get("detail", ""))}
-              for i, x in enumerate(stats.get("legend") or [])]
+    legend = [{"n": int(x.get("n", i + 1)), "title": plain_phone(x.get("key", ""), x.get("detail", "")),
+               "x": int(x.get("x", 0))} for i, x in enumerate(stats.get("legend") or [])]
     return {"mode": stats.get("mode", "marks"), "legend": legend, "boxed": boxed, "more": max(0, total - boxed),
+            "extra": sum(x["x"] for x in legend),
             "total": total, "lower": int(stats.get("y0", 0) or 0) > 0}
 
 
@@ -643,7 +644,7 @@ def phone_slot(report, job_id, state, stats=None):
     counts = phone_counts(stats)
     n = len(other_items(report))
     legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}'
-                     + (' <span class="lc-inpk">in your Fix Pack</span>' if x["n"] > 3 else "") + '</li>'
+                     + (' <span class="lc-inpk">in your Fix Pack</span>' if x["n"] > 3 or x["x"] else "") + '</li>'
                      for x in counts.get("legend", []))
     mode = counts.get("mode")
     note = ""
@@ -653,14 +654,15 @@ def phone_slot(report, job_id, state, stats=None):
         note = "None of the listed problems shows on the first screen; the Fix Pack renders the whole page."
     elif state == "done" and counts.get("lower"):
         note = "Your first screen had no problems; this is the part of the page further down where they start."
-    bx = "Rendered in a real phone browser (375 px). Numbers match the problem list."
+    bx = ("Rendered in a real phone browser (375 px). Numbers match the problem list."
+          if counts.get("legend") or state != "done" else "Rendered in a real phone browser (375 px).")
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
     wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
-    return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
-            f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
+    return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-n="{n}" '
+            f'data-done="{1 if state == "done" else 0}"><h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn" id="lc-bx">'
             f'{esc(bx)}</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
-            f'{esc(note)}</p>{fixpack_cta(job_id, n)}</div></div></section>')
+            f'{esc(note)}</p>{fixpack_cta(job_id, n + counts.get("extra", 0))}</div></div></section>')
 
 
 def summary_of(report, job):
@@ -713,9 +715,12 @@ function poll(){n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json()
 if(d.state==='done'){var i=document.getElementById('lc-pi');i.onload=function(){i.hidden=false;
 var w=document.getElementById('lc-pw');if(w)w.remove();var leg=document.getElementById('lc-leg');leg.textContent='';
 (d.legend||[]).forEach(function(x){var li=document.createElement('li');var b=document.createElement('b');b.textContent='#'+x.n;
-li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));if(x.n>3){var k=document.createElement('span');
+li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));if(x.n>3||x.x){var k=document.createElement('span');
 k.className='lc-inpk';k.textContent='in your Fix Pack';li.appendChild(document.createTextNode(' '));li.appendChild(k);}
 leg.appendChild(li);});
+if(!(d.legend||[]).length){var bx=document.getElementById('lc-bx');if(bx)bx.textContent='Rendered in a real phone browser (375 px).';}
+var tn=+(s.getAttribute('data-n')||0)+(d.extra||0),mo=document.getElementById('lc-more');
+if(mo&&d.extra&&tn>3)mo.firstChild.textContent=(tn-3)+' more problem'+(tn-3===1?'':'s')+' in your Fix Pack · every one boxed on phone, tablet and desktop · $9 (refund if it doesn’t help)';
 var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
 if(d.mode==='unboxed')note.textContent='None of the listed problems shows on the first screen; the Fix Pack renders the whole page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
@@ -867,7 +872,7 @@ def start_phone(job, report):
 
     def work():
         try:
-            out = scanner.render_phone(report["final_url"], phone_marks(report))
+            out = scanner.render_phone(report["final_url"], phone_marks(report), listn=len(other_items(report)))
         except Exception:  # never break the result page
             out = None
         job["phone"] = phone_state_from(out)
@@ -903,7 +908,7 @@ def start_lasting_phone(scan_id, sm):
 
     def work():
         try:
-            out = scanner.render_phone(sm["final"], marks)
+            out = scanner.render_phone(sm["final"], marks, listn=sm.get("n", 0))
         except Exception:  # never break the page
             out = None
         LASTING_PHONE[scan_id] = phone_state_from(out)

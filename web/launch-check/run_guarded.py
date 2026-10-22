@@ -94,6 +94,7 @@ def _browser_through_guard(module):
         ranks = {k: i + 1 for i, k in enumerate(ranks)}
     ranks = {k: int(v) for k, v in ranks.items()}
     order = sorted(ranks, key=ranks.get)
+    listn = int(os.environ.get("LC_LISTN") or max(ranks.values(), default=0))  # length of the result's list
     state = {"botcheck": False}
     clip_h = 812 if web else 1600
 
@@ -140,6 +141,12 @@ def _browser_through_guard(module):
         out = {}
         shots_dir.mkdir(parents=True, exist_ok=True)
         spots = [f for f in findings if f["check"] not in STYLE_CHECKS]
+        if not web:  # paid renders: number the boxed problems 1..N with no gaps (style notes are never boxed)
+            for i, f in enumerate(spots):
+                f["rank"] = i + 1
+            for f in findings:
+                if f["check"] in STYLE_CHECKS:
+                    f["rank"] = None
         for width, page in pages.items():
             marks = []
             legend = []
@@ -163,6 +170,19 @@ def _browser_through_guard(module):
                         marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
                         legend.append({"n": n, "key": key, "detail": fs[0].get("detail", "")})
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
+                extra = listn  # problems only the real render sees: they join the list as #N+1, #N+2 (paid pack)
+                for f in spots:
+                    if len(legend) >= 2:
+                        break
+                    key = key_of(f)
+                    if key in ranks or not visible_spot(f) or any(x["key"] == key for x in legend):
+                        continue
+                    got = boxes_in_view(f, width, 3, y0)
+                    if got:
+                        extra += 1
+                        marks += [{"box": bx, "label": "#%d" % extra, "color": "#dc2626"} for bx in got]
+                        legend.append({"n": extra, "key": key, "detail": f.get("detail", ""), "x": 1})
+                        boxed += 1
                 mode = "marks" if legend else ("clean" if not spots else "unboxed")
             else:
                 mode = "all"

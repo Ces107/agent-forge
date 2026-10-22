@@ -89,7 +89,7 @@ def pack_page(report, pack, scan_id, token, nonce, demo):
     rescan = (f'<form method="post" action="/rescan/{esc(scan_id)}{q}" style="display:inline"><button class="btn s" '
               f'type="submit">Re-scan{"" if demo else " (free for 7 days)"}</button></form>')
     top = (f'<div class="card">{head}<h1>Your Fix Pack for {esc(host)}</h1><div>Score at the scan: '
-           f'<b>{report["score"]}/100</b> · {len(pack["steps"])} fix steps · {len(pack["files"])} files · '
+           f'<b>{report["score"]}/100</b> · a {len(pack["steps"])}-step fix prompt · {len(pack["files"])} files · '
            f'{len(pack["shots"])} annotated renders</div><div class="acts"><a class="btn" href="/fix/{esc(scan_id)}/'
            f'{esc(pack["zip_name"])}{q}">Download {esc(pack["zip_name"])}</a>{rescan}</div></div>')
     labels = {375: "Phone · 375 px", 768: "Tablet · 768 px", 1440: "Desktop · 1440 px"}
@@ -98,7 +98,7 @@ def pack_page(report, pack, scan_id, token, nonce, demo):
     marks = ""
     if pack.get("render"):
         items = [f'<li><b>#{f.get("rank")}</b>{esc(scanner.lc.short(f.get("detail", ""), 120))} <span>→ '
-                 f'{esc(f.get("fix", ""))}</span></li>' for f in pack["render"].get("findings", [])[:40]]
+                 f'{esc(f.get("fix", ""))}</span></li>' for f in pack["render"].get("findings", [])[:40] if f.get("rank")]
         marks = f'<ol class="marks">{"".join(items)}</ol>'
     shots = (f'<div class="card"><h2>Every problem, boxed</h2><div class="shots">{"".join(figs)}</div>{marks}</div>'
              if figs else '<div class="card"><h2>Renders</h2><p>The renders could not be made this time; open the '

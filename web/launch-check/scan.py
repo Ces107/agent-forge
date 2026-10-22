@@ -280,7 +280,7 @@ def render_slot_free():
         return _queued[0] < RENDER_QUEUE_MAX
 
 
-def render_phone(url, marks, budget=ASYNC_BUDGET):
+def render_phone(url, marks, budget=ASYNC_BUDGET, listn=0):
     """Background render (after the result is shown): the page at 375 px with the given problems boxed.
     marks = {phone key: rank in the result list} (may be empty); only those are boxed, numbered with that rank
     (the top 3 first, then later ones until 2 are boxed). With nothing to box the page comes back clean/unboxed.
@@ -305,7 +305,8 @@ def render_phone(url, marks, budget=ASYNC_BUDGET):
         t0 = time.time()
         report, err = run_vendored("polish_audit.py", [url, "--viewports", "375", "--json", "--shots", shots,
                                                         "--timeout", "25"], budget,
-                                   extra_env={"LC_MARKS": _json.dumps({k: int(v) for k, v in marks.items()})})
+                                   extra_env={"LC_MARKS": _json.dumps({k: int(v) for k, v in marks.items()}),
+                                              "LC_LISTN": str(listn)})
         sys.stderr.write(f"async render {time.time() - t0:.1f}s engine={(report or {}).get('engine')}\n")
         path = ((report or {}).get("screenshots") or {}).get("375")
         if report and report.get("engine") == "playwright" and path and os.path.isfile(path) \
