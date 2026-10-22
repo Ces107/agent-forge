@@ -234,6 +234,10 @@ def _browser_through_guard(module):
             return bool(m) and float(m.group(1)) >= 0.9 * float(m.group(2))
         return False
 
+    def ratio_of(f):  # contrast ratio from the detail; other kinds keep their order (stable sort)
+        m = f["check"] == "contrast" and re.search(r"contrast (\d+(?:\.\d+)?):1", f.get("detail", ""))
+        return float(m.group(1)) if m else 0.0
+
     def best_window(spots, width, doc_h):
         """The first screen if it shows at least 2 spots; otherwise the screen-tall stretch of the page that does."""
         def count(y0):  # distinct kinds of visible problems in this stretch of the page
@@ -263,6 +267,9 @@ def _browser_through_guard(module):
             # text over a photo/gradient we could not sample ("page background assumed") is not provably unreadable
             spots = [f for f in spots if not (f["check"] == "contrast" and (
                 re.search(r"\b1\.[0-2]\d?:1", f.get("detail", "")) or "page background assumed" in f.get("detail", "")))]
+            # clear failures before near-misses, the worst ratio first: the free fix #1, its box, its before/after
+            # and the roast's "3.22:1" all describe the same element
+            spots.sort(key=lambda f: (petty(f), ratio_of(f)))
         if not web:  # paid renders: number the boxed problems 1..N with no gaps (style notes are never boxed)
             for i, f in enumerate(spots):
                 f["rank"] = i + 1

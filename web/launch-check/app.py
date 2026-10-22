@@ -126,9 +126,7 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect wi
            '<path d="M24 33l6 6 11-13" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" '
            'stroke-linejoin="round"/></svg>')
 
-DESC = ("Free check for apps built with Lovable, Bolt, v0, Replit or Cursor: secret keys in your site's code, "
-        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. Usually under a minute, no signup, "
-        "no account.")
+DESC = ("See your site on a real phone with every problem marked: text too faint to read, buttons too small to tap, overlapping or cut-off text, pages wider than the screen. Exact CSS fix for each, free before/after. For sites built with Lovable, Bolt, v0, Replit or Cursor. Usually under a minute, no signup.")
 
 CSS = """
 :root{--ink:#0b1220;--mut:#5b6678;--line:#e3e8ef;--bg:#f6f8fb;--card:#fff;--acc:#16a34a;--acc2:#22c55e;--red:#dc2626}
