@@ -257,11 +257,21 @@ def _browser_through_guard(module):
                     page.wait_for_load_state("load", timeout=1500)
                 except Exception:  # slow images: measure what is there
                     pass
-                try:  # never measure an unstyled page: wait for the stylesheets (slow server CPU), else give up
-                    page.wait_for_function(STYLED_JS, timeout=8000)
-                except Exception:
-                    if not page.evaluate(STYLED_JS):
-                        state["unstyled"] = True
+                for attempt in (1, 2):  # never measure an unstyled page: wait for the stylesheets, else give up
+                    try:
+                        page.wait_for_function(STYLED_JS, timeout=8000)
+                        state.pop("unstyled", None)
+                        break
+                    except Exception:
+                        state["unstyled"] = not page.evaluate(STYLED_JS)
+                        if not state["unstyled"]:
+                            break
+                        if attempt == 1 and any(c.startswith("429") for c in state.get("css", [])):
+                            page.wait_for_timeout(3000)  # rate-limited right after the crawl: one polite reload
+                            state["css"] = []
+                            page.reload(wait_until="domcontentloaded", timeout=int(timeout * 1000))
+                        else:
+                            break
                 try:
                     if page.evaluate(BOTCHECK_JS):
                         state["botcheck"] = True
