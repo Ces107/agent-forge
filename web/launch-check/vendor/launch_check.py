@@ -220,6 +220,8 @@ class Fetcher:
 
     def raw(self, url, cap, method="GET"):
         self.requests += 1
+        # a space or other unsafe character in an asset path ("icon copy.png") would make http.client refuse the URL
+        url = urlparse.quote(url, safe=":/?#[]@!$&'()*+,;=%~")
         req = urlrequest.Request(url, method=method, headers={"User-Agent": self.user_agent,
                                                              "Accept-Encoding": "identity", "Accept": "*/*"})
         t0 = time.time()

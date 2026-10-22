@@ -1125,10 +1125,10 @@ def start_job(url, v, src="", job_id=None, keep=False, keys=True):
         except scanner.ScanError as exc:
             job.update(state="error", error=str(exc))
             sys.stderr.write(f"scan {host} refused-or-failed\n")
-        except Exception:  # never leak a stack trace to the visitor
+        except Exception as exc:  # never leak a stack trace to the visitor (the log keeps the exception type)
             job.update(state="error", error="Something went wrong while checking this site. Try again, or try "
                                             "your preview address.")
-            sys.stderr.write(f"scan {host} crashed\n")
+            sys.stderr.write(f"scan {host} crashed: {type(exc).__name__}\n")
         finally:
             CONCURRENCY.release()
 
