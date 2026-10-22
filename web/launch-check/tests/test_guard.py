@@ -5,6 +5,7 @@ import http.server
 import json as _json
 import sys
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -17,6 +18,7 @@ sys.path.insert(0, str(HERE))
 import guard  # noqa: E402
 import scan  # noqa: E402  (installs the guard)
 import app  # noqa: E402
+import fixpack  # noqa: E402
 
 
 def serve(handler_cls):
@@ -521,6 +523,53 @@ class Round22(unittest.TestCase):
     def test_share_png(self):
         png = app.share_png("a.com", 54, 91)
         self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
+
+
+class Round23(unittest.TestCase):
+    def test_old_link_rescans_under_same_id_and_buy_follows(self):
+        sid = "O" * 24
+        app.RESULTS[sid] = {"id": sid, "url": "https://a.com", "final": "https://a.com/", "t": time.time(),
+                            "score": 71, "key": "ok", "keys": [], "top3": [], "n": 0, "v": "launch"}
+        started = []
+
+        def fake_start(url, v, src="", job_id=None, keep=False):
+            started.append((url, v, job_id))
+            app.JOBS[job_id] = {"state": "running", "t": time.time(), "started": time.time(), "url": url, "v": v,
+                                "src": src, "host": "a.com", "id": job_id}
+            return job_id
+        real, real_on = app.start_job, fixpack.CHECKOUT_ON
+        app.start_job, fixpack.CHECKOUT_ON = fake_start, True
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
+        try:
+            def req(method, path):
+                c = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=5)
+                c.request(method, path)
+                r = c.getresponse()
+                return r.status, r.getheader("Location"), r.read().decode()
+            self.assertEqual(req("POST", f"/buy/{sid}")[:2], (303, f"/r/{sid}"))   # old result: rebuild first
+            st, _, body = req("GET", f"/r/{sid}")
+            self.assertEqual(st, 200)
+            self.assertIn("Checking a.com", body)
+            self.assertEqual(started, [("https://a.com", "launch", sid)])
+        finally:
+            app.start_job, fixpack.CHECKOUT_ON = real, real_on
+            app.JOBS.pop(sid, None)
+            app.RESULTS.pop(sid, None)
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
+            srv.shutdown()
+
+    def test_failed_render_offers_retry(self):
+        real = scan.RENDER_MODE
+        scan.RENDER_MODE = "async"
+        try:
+            html_ = app.phone_slot(REPORT, "J" * 24, "none")
+            self.assertIn('data-failed="1"', html_)
+            self.assertIn("Render it again", app.PHONE_POLL_JS)
+        finally:
+            scan.RENDER_MODE = real
+        self.assertNotIn("for 10 minutes", Path(app.__file__).read_text(encoding="utf-8"))
 
 
 class StatsHistory(unittest.TestCase):

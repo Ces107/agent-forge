@@ -4,7 +4,8 @@ Run: PORT=8000 python app.py   (binds 0.0.0.0:$PORT)
 Routes: GET / (?v=key|stat|supabase headline variants), POST /check (starts a scan, 303 to /r/<id>),
 GET /r/<id> (progress page, then the report), GET /r/<id>/status (JSON), GET /healthz, /robots.txt, /sitemap.xml,
 /llms.txt, /favicon.svg, /og.png.
-Nothing is written anywhere: a finished report is kept in memory for 10 minutes so its page can load, then dropped.
+Nothing is written to disk: a finished report stays in memory while fresh; a compact summary (LC_RESULT log line) keeps
+the result link working for 14 days by re-scanning under the same id.
 Logs carry the method, path (never the query string), status and the target HOST only.
 """
 
@@ -583,8 +584,8 @@ def phone_section(report):
         reason = pv.get("reason") or "no screenshot"
         if reason == "no browser on this server":
             return ('<section class="lc-phone lc-phs"><b>Phone layout: basic check (page code, 1 screen size).</b> '
-                    'This free scan reads your page code; it does not render it. The full skill renders your page in a '
-                    'real browser at phone, tablet and desktop size and marks each problem on a screenshot.</section>')
+                    'This free scan reads your page code; it does not render it. The Fix Pack renders your page at '
+                    'phone, tablet and desktop size and marks each problem on a screenshot.</section>')
         return (f'<section class="lc-phone lc-phs"><b>Phone layout: basic check from the page code only</b> (no browser '
                 f'render this time: {esc(reason)}).</section>')
     return ('<section class="lc-phone lc-phs"><b>Phone layout: not checked</b> (the check did not finish in time).'
@@ -631,8 +632,11 @@ def fixpack_cta(job_id, more):
 
 def phone_slot(report, job_id, state, stats=None):
     """The real 375 px render: fills itself when the background render is done; honest when it can't be made."""
-    if state not in ("rendering", "done", "botcheck") or not job_id:
+    if not job_id or (state not in ("rendering", "done", "botcheck") and scanner.RENDER_MODE != "async"):
         return ""
+    if state not in ("rendering", "done", "botcheck"):  # queue was full or the render failed: say so, offer a retry
+        return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="0" data-failed="1">'
+                f'<h2>Your site on a phone</h2></section>')
     if state == "botcheck":
         return ('<section class="lc-phone lc-phs"><b>Your site showed a bot check to our browser, so we couldn\'t render '
                 'it.</b> The scan above still read your page code.</section>')
@@ -646,12 +650,16 @@ def phone_slot(report, job_id, state, stats=None):
         note = "The problems found are further down the page."
     elif state == "done" and counts.get("lower"):
         note = "Your first screen had no problems; this is the part of the page further down where they start."
+    elif state == "done" and mode == "fallback":
+        note = "Your top 3 aren't on this screen, so the boxes show the first other spots we found."
+    bx = (f"Rendered in a real phone browser (375 px). Boxed: {counts['boxed']} of {counts['total']} spots."
+          if state == "done" and counts.get("total") else "Rendered in a real phone browser (375 px). Boxes:")
     src = f' src="/r/{job_id}/phone.jpg"' if state == "done" else ""
     wait = "" if state == "done" else '<div class="lc-wait" id="lc-pw">rendering… (about 30 s)</div>'
     return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="{1 if state == "done" else 0}">'
             f'<h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
-            f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn">Rendered in a '
-            f'real phone browser (375 px). Boxes:</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
+            f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn" id="lc-bx">'
+            f'{esc(bx)}</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
             f'{esc(note)}</p>{fixpack_cta(job_id, counts.get("more", 0))}</div></div></section>')
 
 
@@ -691,19 +699,31 @@ def lasting_page(sm, nonce, phone_state=None, phone_stats=None):
 
 
 PHONE_POLL_JS = r"""(function(){var s=document.getElementById('lc-ps');if(!s||s.getAttribute('data-done')==='1')return;
-var u=s.getAttribute('data-u'),n=0;function poll(){n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json();})
-.then(function(d){if(d.state==='done'){var i=document.getElementById('lc-pi');i.onload=function(){i.hidden=false;
+var u=s.getAttribute('data-u'),n=0,again=false;
+function fail(msg){s.className='lc-phone lc-phs';s.innerHTML='';var b=document.createElement('b');
+b.textContent=msg||'The phone render didn’t finish: our server was busy.';var t=document.createElement('button');
+t.type='button';t.className='btn s';t.style.marginLeft='10px';t.textContent='Render it again';s.appendChild(b);s.appendChild(t);
+t.onclick=function(){t.disabled=true;t.textContent='rendering… (about 30 s)';again=true;
+fetch(u+'?retry=1',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+if(d.state==='rendering'){n=0;setTimeout(poll,3000);}else if(d.state==='done'){location.reload();}
+else{fail('Still busy. Try again in a minute.');}}).catch(function(){fail();});};}
+if(s.getAttribute('data-failed')==='1'){fail();return;}
+function poll(){n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json();})
+.then(function(d){if(d.state==='done'&&again){location.reload();return;}
+if(d.state==='done'){var i=document.getElementById('lc-pi');i.onload=function(){i.hidden=false;
 var w=document.getElementById('lc-pw');if(w)w.remove();var leg=document.getElementById('lc-leg');leg.textContent='';
 (d.legend||[]).forEach(function(x){var li=document.createElement('li');var b=document.createElement('b');b.textContent='#'+x.n;
 li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));leg.appendChild(li);});
 var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
 if(d.mode==='unboxed')note.textContent='The problems found are further down the page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
+if(d.mode==='fallback')note.textContent='Your top 3 aren’t on this screen, so the boxes show the first other spots we found.';
+var bx=document.getElementById('lc-bx');if(bx&&d.total)bx.textContent='Rendered in a real phone browser (375 px). Boxed: '+d.boxed+' of '+d.total+' spots.';
 var mo=document.getElementById('lc-more');if(mo){mo.textContent=(d.more>0?'+'+d.more+' more spot'+(d.more===1?'':'s')+' on your page \u00b7 every one boxed on phone, tablet and desktop':'Every spot boxed on phone, tablet and desktop')+' \u00b7 Fix Pack $9 (refund if it doesn\u2019t help)';}
 var tl=document.querySelector('.fp-tl');if(tl&&d.more>0){tl.textContent='Phone \u00b7 tablet \u00b7 desktop renders, '+d.more+' more spot'+(d.more===1?'':'s')+' marked';}
-};i.onerror=function(){s.remove();};i.src=u+'.jpg';}
+};i.onerror=function(){fail();};i.src=u+'.jpg';}
 else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site showed a bot check to our browser, so we couldn\u2019t render it.</b> The scan still read your page code.';}
-else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{s.remove();}}).catch(function(){s.remove();});}
+else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{fail();}}).catch(function(){fail();});}
 setTimeout(poll,3000);})();"""
 
 
@@ -759,8 +779,8 @@ setTimeout(poll,3000);}})();</script>"""
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
                       "A good score is not a security audit. Free scan: phone findings come from the page code (1 screen "
-                      "size); the phone screenshot is a real browser render. Nothing was written to disk: this report "
-                      "stays in memory for 10 minutes so the page can load, then it is dropped."
+                      "size); the phone screenshot is a real browser render. This page link keeps the score, the top 3 and "
+                      "the phone render for 14 days; the full report stays only while the scan is fresh."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
@@ -819,15 +839,6 @@ def start_job(url, v, src="", job_id=None, keep=False):
         JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host,
                         "id": job_id, "keep_until": now + fixpack.PACK_DAYS * 86400 if keep else 0}
 
-    def render_later(job, report):
-        """After the result is ready: render the page at 375 px with the free top-3 phone problems boxed."""
-        marks = phone_marks(report)
-        try:
-            out = scanner.render_phone(report["final_url"], marks)
-        except Exception:  # never break the result page
-            out = None
-        job["phone"] = phone_state_from(out)
-
     def work():
         job = JOBS.get(job_id)
         if job is None:
@@ -839,11 +850,8 @@ def start_job(url, v, src="", job_id=None, keep=False):
             job.update(state="running", started=time.time())
             report = scanner.scan(url)
             report["job"] = job_id  # stamped: the page refuses to show a report from any other job
-            if scanner.RENDER_MODE == "async" and scanner.render_slot_free():  # queue of 3, else no slot
-                job["phone"] = {"state": "rendering"}
+            start_phone(job, report)  # before "done", so the first result page already shows "rendering"
             job.update(state="done", report=report)
-            if job.get("phone", {}).get("state") == "rendering":
-                threading.Thread(target=render_later, args=(job, report), daemon=True).start()
             count("scans_done", job["v"], job["src"])
             sm = summary_of(report, job)
             RESULTS[job_id] = sm
@@ -863,6 +871,24 @@ def start_job(url, v, src="", job_id=None, keep=False):
 
     threading.Thread(target=work, daemon=True).start()
     return job_id
+
+
+def start_phone(job, report):
+    """Render the page at 375 px with the free top-3 phone problems boxed, after the result is ready.
+    False when renders are off or the queue (3) is full: the page then offers a retry."""
+    if scanner.RENDER_MODE != "async" or not scanner.render_slot_free():
+        return False
+    job["phone"] = {"state": "rendering", "t": time.time()}
+
+    def work():
+        try:
+            out = scanner.render_phone(report["final_url"], phone_marks(report))
+        except Exception:  # never break the result page
+            out = None
+        job["phone"] = phone_state_from(out)
+
+    threading.Thread(target=work, daemon=True).start()
+    return True
 
 
 def job_state(job):
@@ -888,7 +914,7 @@ def start_lasting_phone(scan_id, sm):
     if scanner.RENDER_MODE != "async" or not scanner.render_slot_free():
         LASTING_PHONE[scan_id] = {"state": "none"}
         return LASTING_PHONE[scan_id]
-    LASTING_PHONE[scan_id] = {"state": "rendering"}
+    LASTING_PHONE[scan_id] = {"state": "rendering", "t": time.time()}
 
     def work():
         try:
@@ -1040,7 +1066,14 @@ class Handler(BaseHTTPRequestHandler):
             job = JOBS.get(m.group(1))
             if m.group(2) == "/phone":
                 ph = (job or {}).get("phone") or LASTING_PHONE.get(m.group(1)) or {"state": "none"}
-                if ph["state"] == "rendering" and time.time() - job["t"] > 240:
+                if "retry" in urlparse.parse_qs(parts.query) and ph["state"] == "none":
+                    if job and job_state(job) == "done":
+                        start_phone(job, job["report"])
+                        ph = job.get("phone") or ph
+                    elif not job and m.group(1) in RESULTS:
+                        LASTING_PHONE.pop(m.group(1), None)
+                        ph = start_lasting_phone(m.group(1), RESULTS[m.group(1)])
+                if ph["state"] == "rendering" and time.time() - ph.get("t", (job or {}).get("t", 0)) > 240:
                     ph = {"state": "none"}
                 return self.send(200, json.dumps({"state": ph["state"], **phone_counts(ph.get("stats"))}),
                                  "application/json")
@@ -1061,6 +1094,11 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 sm = RESULTS.get(m.group(1))
                 if sm and time.time() - sm["t"] < RESULT_DAYS * 86400:
+                    # A shared link outlives the in-memory report: re-scan under the same id (~20 s) so the visitor
+                    # gets the full result, the Fix Pack preview and checkout, not a summary.
+                    if start_job(sm["url"], sm.get("v", "dev"), sm.get("src", ""), job_id=m.group(1)):
+                        count("result_reopened", sm.get("v", "dev"), sm.get("src", ""))
+                        return self.send(200, progress_page(m.group(1), JOBS[m.group(1)], n), nonce=n)
                     ph = LASTING_PHONE.get(m.group(1))
                     if ph is None:
                         ph = start_lasting_phone(m.group(1), sm)
@@ -1227,6 +1265,8 @@ class Handler(BaseHTTPRequestHandler):
             if not fixpack.CHECKOUT_ON:
                 return self.send(303, "", extra={"Location": "/fix/demo"})
             job = JOBS.get(buy.group(1))
+            if not job and buy.group(1) in RESULTS:  # an older result: rebuild it, then the page offers checkout again
+                return self.send(303, "", extra={"Location": f"/r/{buy.group(1)}"})
             if not job or job.get("state") != "done":
                 n = secrets.token_urlsafe(16)
                 return self.send(404, page(n, error="This result has expired. Check your site again."), nonce=n)
@@ -1311,7 +1351,21 @@ def main():
     srv.daemon_threads = True
     sys.stderr.write(f"launch-check web on 0.0.0.0:{port}\n")
     threading.Thread(target=rebuild_stats_from_logs, daemon=True).start()
+    if os.environ.get("LC_WARM_DEMO", "1") == "1":
+        threading.Thread(target=warm_demo, daemon=True).start()
     srv.serve_forever()
+
+
+def warm_demo():
+    """Build the sample Fix Pack shortly after boot, so the first visitor to /fix/demo doesn't wait ~70 s."""
+    time.sleep(45)
+    job = demo_job()
+    for _ in range(60):
+        if job_state(job) in ("done", "error"):
+            break
+        time.sleep(5)
+    if job.get("state") == "done":
+        ensure_pack(job)
 
 
 if __name__ == "__main__":
