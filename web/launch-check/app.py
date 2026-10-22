@@ -391,7 +391,7 @@ def shell(inner, nonce, v="dev", extra_head="", script=""):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
-<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#0b1220"><link rel="apple-touch-icon" href="/icon-192.png">
 <meta property="og:title" content="{esc(h1)}"><meta property="og:description" content="{esc(DESC)}">
 <meta property="og:type" content="website"><meta property="og:url" content="{SITE}/">
 <meta property="og:image" content="{SITE}/og.png"><meta name="twitter:card" content="summary_large_image">
@@ -433,7 +433,7 @@ def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=T
 <div class="bar" aria-hidden="true"><i></i></div>
 <div class="sub">{esc(d.get("sub", SUB))}</div>
 <div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · results deleted after 14 days · not a penetration test</div>
-<div class="biz">Free scan. Fix Pack $9 when you want every fix.</div>
+<div class="biz">Free scan. Fix Pack {fixpack.PRICE} when you want every fix.</div>
 {src_html}
 {example}"""
     auto = ("var f=document.getElementById('f');if(f.url.value){document.body.classList.add('busy');"
@@ -441,6 +441,7 @@ def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=T
     script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
 document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually under a minute';}},0);}});
+if('serviceWorker' in navigator){{navigator.serviceWorker.register('/sw.js').catch(function(){{}});}}
 {auto}</script>"""
     return shell(inner, nonce, v, script=script)
 
@@ -957,6 +958,11 @@ if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems
 else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site didn\u2019t let our browser in this time</b> (some hosts block cloud servers or show them a bot check), so there is no phone render. The scan still read your page code.';}
 else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{fail();}}).catch(function(){fail();});}
 setTimeout(poll,3000);})();"""
+SW_JS = """self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());
+self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).catch(()=>
+new Response('<meta name=viewport content=width=device-width><body style="font:16px system-ui;padding:24px">You are offline. '
++'Launch Check needs the internet to open your site on a phone.</body>',{headers:{'Content-Type':'text/html'}})));});"""
+PHONE_POLL_JS = PHONE_POLL_JS.replace("$9 (refund", fixpack.PRICE + " (refund")  # one price setting
 
 
 def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, phone_stats=None, before=None):
@@ -978,7 +984,7 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     counts = phone_counts(phone_stats) if phone_state == "done" else {}
     if phone_state == "done" and not (phone_stats or {}).get("legend"):  # a pass: no pack pitch, one quiet line
         preview = (f'<section class="lc-top3" id="lc-fp"><p class="lc-nc">Your site passes on a phone. The {n} smaller '
-                   f'items above have their exact fixes and files in the <a href="/fix/demo">Fix Pack</a> ($9), if you '
+                   f'items above have their exact fixes and files in the <a href="/fix/demo">Fix Pack</a> ({fixpack.PRICE}), if you '
                    f'want them.</p></section>')
     else:
         preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False, n_all=total)
@@ -1518,6 +1524,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(422, page(n, job["v"], url_value=job["url"], error=job.get("error", ""),
                                            src=job.get("src", "")), nonce=n)
             return self.send(200, progress_page(m.group(1), job, n), nonce=n)
+        if path == "/manifest.webmanifest":  # installable app (Android/iOS home screen; Play Store later via TWA)
+            return self.send(200, json.dumps({
+                "name": "Launch Check: your site on a phone", "short_name": "Launch Check", "start_url": "/roast",
+                "display": "standalone", "background_color": "#0b1220", "theme_color": "#0b1220",
+                "description": "See your site on a real phone, problems boxed, fixes ready for your AI.",
+                "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                          {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]}),
+                "application/manifest+json", cache="public, max-age=86400")
+        if path in ("/icon-192.png", "/icon-512.png"):
+            return self.send(200, (Path(__file__).resolve().parent / "static" / path[1:]).read_bytes(), "image/png",
+                             cache="public, max-age=86400")
+        if path == "/sw.js":  # minimal service worker: installable, network-first, offline page for the shell
+            return self.send(200, SW_JS, "text/javascript; charset=utf-8", cache="no-cache",
+                             extra={"Service-Worker-Allowed": "/"})
         if path in ("/favicon.svg", "/favicon.ico"):
             return self.send(200, FAVICON, "image/svg+xml", cache="public, max-age=86400")
         if path == "/example-phone.jpg":
