@@ -63,7 +63,7 @@ QUEUE_WAIT = 40                         # seconds a scan may wait for a free sca
 JOB_TTL = 6 * 3600                      # finished reports stay in memory this long (oldest evicted when full)
 JOB_MAX = 300
 STUCK_AFTER = scanner.BUDGET + 40       # a job still running after this is reported as failed
-RENDER_WAIT = float(os.environ.get("LC_RENDER_WAIT", "75"))  # the result waits this long for the real phone render
+RENDER_WAIT = float(os.environ.get("LC_RENDER_WAIT", "100"))  # the result waits this long for the real phone render
 MAX_BODY = 4096
 _hits: dict[str, deque] = defaultdict(deque)
 _hits_lock = threading.Lock()
@@ -453,7 +453,7 @@ def progress_page(job_id, job, nonce):
             else f"Checking {host}…")
     inner = f"""<div class="prog" role="status"><b>{what}</b>
 <div class="bar" aria-hidden="true"><i></i></div>
-<p>{'Marking what is broken on the screen. Under a minute.' if rendering else 'Usually under a minute.'} This page updates by itself.</p></div>"""
+<p>{'Marking what is broken on the screen. About a minute.' if rendering else 'Usually under a minute.'} This page updates by itself.</p></div>"""
     head = f'<noscript><meta http-equiv="refresh" content="3"></noscript><meta name="robots" content="noindex">'
     script = f"""<script nonce="{nonce}">(function(){{var u='/r/{job_id}/status';
 function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
@@ -699,9 +699,10 @@ def roast_lines(items, host=""):
     return burns
 
 
-VERDICTS = {90: ("Annoyingly good. We tried.", "Hard to roast. We found a few crumbs.", "Clean. Mostly. Here's what's left."),
-            80: ("Nearly there. A phone still finds a few things.", "Solid. These are the last rough edges.",
-                 "Almost launch-ready on a phone."),
+VERDICTS = {90: ("Annoyingly good, and still we found these.", "Hard to roast. We managed anyway.",
+                 "Clean from far away. Up close on a phone, not quite."),
+            80: ("Close, but a phone still catches these.", "Your laptop is happy. Your visitors' phones less so.",
+                 "Almost launch-ready on a phone. Almost."),
             65: ("Looks fine on a laptop. Your phone visitors disagree.", "Close, but a phone tells a different story.",
                  "Good bones. The phone version needs a pass."),
             50: ("Ship it? After these.", "Your phone visitors would notice these first.",

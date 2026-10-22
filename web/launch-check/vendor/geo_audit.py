@@ -170,7 +170,9 @@ RULES = {
                      "Start with '# Name', a '> summary', then '## Section' lists of '- [title](url): note'."),
     "llms-dead-link": ("ai-access", "medium", "/llms.txt links to pages that return an error", "Fix or drop those links."),
     "js-only-content": ("ai-access", "high", "Page text is rendered by JavaScript (almost no text in the HTML)",
-                        "Server-render or pre-render the content; most AI crawlers do not run JavaScript."),
+                        "Pre-render the page so its HTML already contains the text (most AI crawlers do not run JavaScript). "
+                        "Lovable/Bolt/Vite: ask your AI \"add vite-plugin-prerender (or react-snap) so the home page is "
+                        "pre-rendered at build time\"; Next.js: make the page a server component or use static export."),
     "question-headings": ("answers", "low", "Long page with no question-style headings",
                           "Phrase key sections as the questions people ask (\"How do I ...?\")."),
     "answer-not-concise": ("answers", "medium", "Question heading not followed by a short direct answer",

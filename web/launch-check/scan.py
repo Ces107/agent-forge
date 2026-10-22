@@ -266,7 +266,7 @@ BROWSER = threading.BoundedSemaphore(1)   # one Chromium at a time (512 MB insta
 RENDER_BUDGET = float(os.environ.get("LC_RENDER_BUDGET", "12"))  # hard wall clock for the phone render
 RENDER_MODE = os.environ.get("LC_RENDER", "0")      # "0" off, "sync" inside the scan, "async" after the result
 RENDER_ENABLED = RENDER_MODE == "sync"
-ASYNC_BUDGET = float(os.environ.get("LC_RENDER_WAIT", "75"))  # same wall clock as the render-first wait
+ASYNC_BUDGET = float(os.environ.get("LC_RENDER_WAIT", "100"))  # same wall clock as the render-first wait
 
 
 RENDER_QUEUE_MAX = 3
