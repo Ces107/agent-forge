@@ -45,6 +45,8 @@ def proof_line() -> str:
 PAY_PROVIDER = os.environ.get("PAY_PROVIDER", "").strip().lower()
 POLAR_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
 POLAR_PRODUCT = os.environ.get("POLAR_PRODUCT_ID", "")
+POLAR_PRODUCT_DFY = os.environ.get("POLAR_PRODUCT_ID_DFY", "")  # optional $39 "the founder fixes it" tier
+DFY_PRICE, DFY_SLOTS = "$39", int(os.environ.get("LC_DFY_SLOTS", "5"))
 POLAR_SERVER = os.environ.get("POLAR_SERVER", "sandbox").strip().lower()
 POLAR_WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "")
 PAY_SECRET = os.environ.get("PAY_SECRET") or secrets.token_hex(32)  # tokens die with the process if unset
@@ -356,19 +358,31 @@ def _polar(method: str, path: str, body: dict | None = None) -> dict:
         return json.loads(resp.read(1_000_000))
 
 
-def polar_checkout_url(scan_id: str, base_url: str) -> str:
+def dfy_on() -> bool:
+    return CHECKOUT_ON and bool(POLAR_PRODUCT_DFY) and DFY_SLOTS > 0
+
+
+def polar_checkout_url(scan_id: str, base_url: str, tier: str = "pack") -> str:
     data = _polar("POST", "/v1/checkouts/", {
-        "products": [POLAR_PRODUCT],
+        "products": [POLAR_PRODUCT_DFY if tier == "dfy" and POLAR_PRODUCT_DFY else POLAR_PRODUCT],
         "success_url": f"{base_url}/fix/{scan_id}?checkout_id={{CHECKOUT_ID}}",
-        "metadata": {"scan_id": scan_id}})
+        "metadata": {"scan_id": scan_id, "tier": "dfy" if tier == "dfy" else "pack"}})
     return data["url"]
 
 
-def polar_checkout_paid(checkout_id: str, scan_id: str) -> bool:
+def polar_checkout_tier(checkout_id: str, scan_id: str) -> str:
+    """'pack' or 'dfy' when that checkout is paid for this scan, else ''."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", checkout_id or ""):
-        return False
+        return ""
     data = _polar("GET", f"/v1/checkouts/{checkout_id}")
-    return data.get("status") == "succeeded" and (data.get("metadata") or {}).get("scan_id") == scan_id
+    meta = data.get("metadata") or {}
+    if data.get("status") != "succeeded" or meta.get("scan_id") != scan_id:
+        return ""
+    return "dfy" if meta.get("tier") == "dfy" else "pack"
+
+
+def polar_checkout_paid(checkout_id: str, scan_id: str) -> bool:
+    return bool(polar_checkout_tier(checkout_id, scan_id))
 
 
 def polar_webhook_ok(headers, body: bytes) -> bool:
@@ -449,6 +463,10 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · re-scan free for 7 days · refund if it doesn\'t '
                   'help</div>')
+        if dfy_on():
+            button += (f'<form method="post" action="/buy/{esc(job_id)}?tier=dfy"><button class="fp-dfy" type="submit">'
+                       f'Or the founder fixes it for you — {DFY_PRICE}</button></form><div class="fp-terms">Within 24 h, '
+                       f'by email or a pull request · {DFY_SLOTS} launch slots · refund if it isn\'t done</div>')
     else:
         button = ('<a class="fp-buy" href="/fix/demo">See a sample Fix Pack</a>'
                   f'<div class="fp-terms">Checkout opens soon · launch price {PRICE} <s>{PRICE_WAS}</s> · one-time · '
@@ -483,6 +501,7 @@ max-height:none}
 .fp-buy{display:inline-block;background:#16a34a;color:#fff;border:0;border-radius:14px;padding:16px 28px;font:inherit;
 font-size:20px;font-weight:800;text-decoration:none;cursor:pointer}.fp-buy:hover{background:#15803d}
 .fp-buy s{opacity:.7;font-weight:600;margin-left:6px}
-.fp-terms{color:#475569;font-size:13px;margin-top:8px}.fp-terms s{opacity:.8}
+.fp-terms{color:#475569;font-size:13px;margin-top:8px}
+.fp-dfy{margin-top:14px;background:#fff;color:#0f172a;border:2px solid #0f172a;border-radius:12px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}.fp-terms s{opacity:.8}
 @media (max-width:700px){.fp-files{grid-template-columns:1fr}.fp{padding:16px}.fp-desk{width:140px}.fp-buy{display:block}}
 """

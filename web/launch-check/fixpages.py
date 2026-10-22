@@ -81,13 +81,16 @@ def locked_page(nonce, message="This Fix Pack is locked"):
     return _doc("Fix Pack | Launch Check", body, nonce)
 
 
-def pack_page(report, pack, scan_id, token, nonce, demo):
+def pack_page(report, pack, scan_id, token, nonce, demo, dfy=False):
     host = "FlowPilot (demo page)" if demo else (urlparse.urlsplit(report["final_url"]).hostname or report["final_url"])
     q = f"?token={token}" if token else ""
     head = ('<span class="badge">Sample pack for the seeded FlowPilot demo page, a typical AI-built landing page</span>'
             if demo else "")
     rescan = (f'<form method="post" action="/rescan/{esc(scan_id)}{q}" style="display:inline"><button class="btn s" '
               f'type="submit">Re-scan{"" if demo else " (free for 7 days)"}</button></form>')
+    if dfy:
+        head += ('<p><b>Done-for-you booked.</b> The founder emails you within 24 hours at your checkout email to fix '
+                 'these on your site (or open a pull request). Everything below is yours already.</p>')
     top = (f'<div class="card">{head}<h1>Your Fix Pack for {esc(host)}</h1><div>Score at the scan: '
            f'<b>{report["score"]}/100</b> · a {len(pack["steps"])}-step fix prompt · {len(pack["files"])} files · '
            f'{len(pack["shots"])} annotated renders</div><div class="acts"><a class="btn" href="/fix/{esc(scan_id)}/'

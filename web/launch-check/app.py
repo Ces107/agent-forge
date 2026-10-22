@@ -1149,12 +1149,12 @@ def share_png(host, before, after):
     return buf.getvalue()
 
 
-def mark_paid(scan_id, url):
-    PAID[scan_id] = {"url": url, "t": time.time()}
+def mark_paid(scan_id, url, tier="pack"):
+    PAID[scan_id] = {"url": url, "t": time.time(), "tier": tier}
     job = JOBS.get(scan_id)
     if job:
         job["keep_until"] = time.time() + fixpack.PACK_DAYS * 86400
-    sys.stderr.write("LC_PAID " + json.dumps({"scan": scan_id, "url": url, "t": int(time.time())},
+    sys.stderr.write("LC_PAID " + json.dumps({"scan": scan_id, "url": url, "t": int(time.time()), "tier": tier},
                                              separators=(",", ":")) + "\n")
 
 
@@ -1400,11 +1400,11 @@ class Handler(BaseHTTPRequestHandler):
             job = JOBS.get(scan_id)
             if fixpack.CHECKOUT_ON and checkout and job and job.get("state") == "done":
                 try:
-                    paid = fixpack.polar_checkout_paid(checkout, scan_id)
+                    paid = fixpack.polar_checkout_tier(checkout, scan_id)
                 except Exception:  # Polar unreachable: let the buyer retry
-                    paid = False
+                    paid = ""
                 if paid:
-                    mark_paid(scan_id, job["url"])
+                    mark_paid(scan_id, job["url"], paid)
                     return self.send(303, "", extra={"Location": f"/fix/{scan_id}?token={fixpack.token_for(scan_id)}"})
             if sub == "/status":
                 return self.send(200, json.dumps({"state": "locked"}), "application/json")
@@ -1447,7 +1447,8 @@ class Handler(BaseHTTPRequestHandler):
         if pack.get("state") == "done":
             if demo:
                 count("demo_pack_view", "dev", "")
-            return self.send(200, fixpages.pack_page(job["report"], pack, scan_id, token, n, demo), nonce=n)
+            return self.send(200, fixpages.pack_page(job["report"], pack, scan_id, token, n, demo,
+                                                                  (PAID.get(scan_id) or {}).get("tier") == "dfy"), nonce=n)
         if pack.get("state") == "failed":
             job.pop("pack", None)
             return self.send(500, fixpages.locked_page(n, "The pack could not be built. Reload to try again."), nonce=n)
@@ -1467,7 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
                 n = secrets.token_urlsafe(16)
                 return self.send(404, page(n, error="This result has expired. Check your site again."), nonce=n)
             try:
-                url = fixpack.polar_checkout_url(buy.group(1), SITE)
+                tier = (urlparse.parse_qs(parts.query).get("tier") or ["pack"])[0]
+                url = fixpack.polar_checkout_url(buy.group(1), SITE, "dfy" if tier == "dfy" and fixpack.dfy_on() else "pack")
             except Exception:  # Polar unreachable
                 n = secrets.token_urlsafe(16)
                 return self.send(502, page(n, error="Checkout is not reachable right now. Try again in a minute."),
@@ -1507,8 +1509,9 @@ class Handler(BaseHTTPRequestHandler):
                 sid = ((data.get("metadata") or {}).get("scan_id")
                        or ((data.get("checkout") or {}).get("metadata") or {}).get("scan_id") or "")
                 job = JOBS.get(sid)
+                meta = (data.get("metadata") or {}) or ((data.get("checkout") or {}).get("metadata") or {})
                 if sid and job:
-                    mark_paid(sid, job["url"])
+                    mark_paid(sid, job["url"], "dfy" if meta.get("tier") == "dfy" else "pack")
             return self.send(202, "ok", "text/plain; charset=utf-8")
         if path != "/check":
             return self.send(404, "not found", "text/plain; charset=utf-8")
