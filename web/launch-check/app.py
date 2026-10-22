@@ -640,6 +640,8 @@ FACTS = {  # several wordings per problem, picked per site, so two cards never r
     "heavy-js": ("{v} KB of JavaScript before anything works. The phone needs a coffee break.",
                  "{v} KB of scripts to show a landing page. Bold."),
     "phone-overflow": ("{v} parts of your page are wider than the phone, so it wobbles sideways.",),
+    "phone-clipped": ("\"{v}\" gets cut off on a phone.", "On a phone, \"{v}\" loses its last letters."),
+    "phone-overlap": ("\"{v}\" is printed on top of other text on a phone.", "On a phone, \"{v}\" sits on top of something else."),
     "phone-fixed-width": ("{v} parts of your page are wider than the phone, so it wobbles sideways.",),
 }
 
@@ -658,6 +660,9 @@ def fact_value(rule, title, detail):
     if rule in ("phone-fixed-width", "phone-overflow"):
         m = re.search(r"\((\d+) places\)", t)
         return m.group(1) if m else ""
+    if rule in ("phone-clipped", "phone-overlap"):  # the words themselves are the proof on the picture
+        m = re.search(r'"([^"]{3,40})"', detail)
+        return m.group(1).strip() if m else ""
     return ""
 
 
@@ -679,9 +684,9 @@ def roast_lines(items, host=""):
             v = fact_value(rule, title, detail)
             if v and int(v) >= 24:
                 continue
+        if not rule.startswith("phone-"):
+            continue  # every burn is something you can see boxed on the phone picture
         line = fact_line(rule, title, detail, host)
-        if not line and not rule.startswith("phone-") and not any(not r.startswith("phone-") for r in used):
-            line = ROAST.get(rule, "")  # one checkable search/speed line at most; phone burns need their numbers
         if not line or rule in used or line in burns:
             continue
         used.add(rule)
@@ -1116,7 +1121,7 @@ KEEP_STATIC = {"phone-viewport-meta", "phone-images"}  # read from the page code
 def fix_with_background(f):
     """A contrast fix names the background it was measured on, so "make it lighter" never looks backwards."""
     m = re.search(r" on (#[0-9a-fA-F]{3,8})", f.get("detail", "")) if f["rule"] == "phone-contrast" else None
-    return f'{f["fix"]} (on background {m.group(1)})' if m else f["fix"]
+    return f'{f["fix"]} (on background {m.group(1)})' if m and "background" not in f["fix"] else f["fix"]
 
 
 def drop_phone_guesses(report):

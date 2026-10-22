@@ -191,7 +191,7 @@ def _browser_through_guard(module):
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
                 extra = listn  # problems only the real render sees: they join the list as #N+1, #N+2 (paid pack)
                 for f in spots:
-                    if len(legend) >= 2:
+                    if len(legend) >= 3:  # three boxed problems: the free top 3, and three burns you can check
                         break
                     key = key_of(f)
                     if key in ranks or not visible_spot(f) or petty(f) or any(x["key"] == key for x in legend):

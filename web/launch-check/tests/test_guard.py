@@ -579,12 +579,13 @@ class Roast(unittest.TestCase):
         lines = app.roast_lines([("phone-tap-target", "", "tap target 100x16 px"), ("phone-contrast", "x"),
                                  ("phone-tap-target", "", "tap target 100x30 px"), ("unknown-rule", "Odd thing"),
                                  ("csp-missing", "y"), ("search-sitemap-missing", "z"),
+                                 ("phone-clipped", "", 'text cut off by div.x (11 px hidden): "Pots et popote"'),
                                  ("heavy-js", "1743 KB of JavaScript before anything works")])
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(lines), 2)
         self.assertIn("16", lines[0])                   # phone burns carry the site's own number
+        self.assertIn('"Pots et popote"', lines[1])     # or the site's own words
         self.assertNotIn("hide-and-seek", " ".join(lines))  # a phone burn without a number is dropped
-        self.assertEqual(sum("sitemap" in x or "security" in x for x in lines), 1)  # one search/speed line at most
-        self.assertIn("1743", lines[2])
+        self.assertFalse(any("sitemap" in x or "security" in x or "1743" in x for x in lines))  # only what's boxed
         self.assertNotIn("Odd thing", " ".join(lines))  # unknown rules never get an invented joke
 
     def test_roast_landing_and_card(self):
