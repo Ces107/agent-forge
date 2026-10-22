@@ -122,20 +122,16 @@ def _browser_through_guard(module):
             return len({key_of(f) for f in spots if visible_spot(f) and boxes_in_view(f, width, 1, y0)})
         if count(0) >= 2:
             return 0
-        best, best_n = 0, count(0)
-        for f in spots:
-            if not visible_spot(f):
-                continue
-            for bx in f.get("boxes", {}).get(width, [])[:3]:
-                if not bx or len(bx) != 4:
-                    continue
-                y0 = int(max(0, min(bx[1] - 140, max(0, doc_h - clip_h))))
-                n = count(y0)
-                if n > best_n:
-                    best, best_n = y0, n
-                if best_n >= 3:
-                    return best
-        return best
+        cands = sorted({int(max(0, min(bx[1] - 140, max(0, doc_h - clip_h))))
+                        for f in spots if visible_spot(f) for bx in f.get("boxes", {}).get(width, [])[:3]
+                        if bx and len(bx) == 4} | {0})
+        near = [y for y in cands if y <= 3 * clip_h]  # deep in the page, lazy content shifts boxes off their targets
+        for pool in (near, cands):
+            scored = [(count(y), -y) for y in pool]
+            n, y = max(scored)
+            if n:
+                return -y
+        return 0
 
     def annotate(pages, findings, shots_dir, slug):
         out = {}

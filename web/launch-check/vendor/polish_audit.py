@@ -245,6 +245,15 @@ function opacity(el) { if (!el || el.nodeType !== 1) return 1; if (opMap.has(el)
   const o = parseFloat(cs(el).opacity || '1') * opacity(el.parentElement); opMap.set(el, o); return o; }
 function visible(el) { const c = cs(el); if (c.display === 'none' || c.visibility === 'hidden' || c.visibility === 'collapse') return false;
   const r = el.getBoundingClientRect(); return r.width >= 1 && r.height >= 1 && opacity(el) > 0.05; }
+function shown(el, r) {  // not clipped away by a collapsed parent, and not covered by something else on screen
+  if (!clipRects(el, [{l: r.left + SX, t: r.top + SY, r: r.right + SX, b: r.bottom + SY}]).length) return false;
+  if (!(el.innerText || el.value || '').trim() && !el.querySelector('img,svg,picture,video,canvas')
+      && rgba(cs(el).backgroundColor)[3] === 0 && cs(el).backgroundImage === 'none') return false;  // nothing to see
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return true;  // off screen: can't test, keep
+  const top = document.elementFromPoint(x, y);
+  return !top || top === el || el.contains(top) || top.contains(el);
+}
 const cv = document.createElement('canvas'); cv.width = cv.height = 1;
 const cx = cv.getContext('2d', {willReadFrequently: true}); const colCache = new Map();
 function rgba(s) { if (colCache.has(s)) return colCache.get(s); let v = [0, 0, 0, 0];
@@ -382,7 +391,8 @@ for (const el of all) {
     const inline = el.tagName === 'A' && c.display === 'inline' && parent && directText(parent).length > 20;
     if ((el.type === 'checkbox' || el.type === 'radio') && el.labels && el.labels.length) {
       const lr = el.labels[0].getBoundingClientRect(); tr = {width: Math.max(lr.width, r.width), height: Math.max(lr.height, r.height)}; }
-    if (!inline && !el.closest('[aria-hidden=true]') && (tr.width < 44 || tr.height < 44) && !srOnly(el))
+    if (!inline && !el.closest('[aria-hidden=true]') && (tr.width < 44 || tr.height < 44) && !srOnly(el)
+        && shown(el, r))
       R.taps.push({sel: sel(el), box: box(r), w: Math.round(tr.width), h: Math.round(tr.height)});
   }
   // text
