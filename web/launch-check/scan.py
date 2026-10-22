@@ -318,6 +318,10 @@ def render_phone(url, marks, budget=ASYNC_BUDGET, listn=0):
                     stats = _json.load(fh)
             if stats.get("mode") == "unstyled":
                 sys.stderr.write(f"render unstyled css={stats.get('css')}\n")
+            after = os.path.join(shots, "after.jpg")
+            if os.path.isfile(after) and os.path.getsize(after) < 900_000:
+                with open(after, "rb") as fh:
+                    stats["_after"] = fh.read()  # the same screen with fix #1 applied (memory only, never logged)
             with open(path, "rb") as fh:
                 return fh.read(), stats
         return None

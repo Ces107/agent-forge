@@ -5,6 +5,7 @@ saves seconds per scan.
 """
 
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -110,6 +111,30 @@ MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML
              "Mobile Safari/537.36")
 DESKTOP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 "
               "Safari/537.36")
+
+APPLY_JS = r"""(a) => {
+  let n = 0;
+  for (const sel of a.sel.split(/;\s*\d+ selectors?:\s*|,\s*(?=[a-z#.])/i).slice(0, 2)) {
+    try { document.querySelectorAll(sel.trim()).forEach(e => { e.style.cssText += ';' + a.css; n++; }); } catch (e) {}
+  }
+  return n;
+}"""
+
+
+def fix_css(item):
+    """The CSS a free fix stands for, applied to the boxed element for the before/after."""
+    fix, key = item.get("fix", ""), item.get("key", "")
+    m = re.search(r"use color: (#[0-9a-fA-F]{3,8})", fix) or re.search(r"color: #[0-9a-fA-F]{3,8} -> (#[0-9a-fA-F]{3,8})", fix)
+    if key == "contrast" and m:
+        return "opacity: 1 !important; color: %s !important" % m.group(1)
+    m = re.search(r"background #[0-9a-fA-F]{3,8} -> (#[0-9a-fA-F]{3,8})", fix)
+    if key == "contrast" and m:
+        return "background: %s !important" % m.group(1)
+    if key == "tap-target":
+        return ("min-height: 44px !important; min-width: 44px !important; display: inline-flex !important; "
+                "align-items: center !important; justify-content: center !important")
+    return ""
+
 
 STYLED_JS = r"""() => {
   const links = [...document.querySelectorAll('link[rel~="stylesheet"]')]
@@ -226,7 +251,8 @@ def _browser_through_guard(module):
                         first = next(f for f in fs if boxes_in_view(f, width, 3, y0))  # its numbers match the box
                         marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
                         legend.append({"n": n, "key": key, "detail": first.get("detail", ""),
-                                       "fix": first.get("fix", ""), "sev": first["severity"]})
+                                       "fix": first.get("fix", ""), "sev": first["severity"],
+                                       "sel": first.get("selector", "")})
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
                 extra = listn  # problems only the real render sees: they join the list as #N+1, #N+2 (paid pack)
                 for f in spots:
@@ -240,6 +266,7 @@ def _browser_through_guard(module):
                         extra += 1
                         marks += [{"box": bx, "label": "#%d" % extra, "color": "#dc2626"} for bx in got]
                         legend.append({"n": extra, "key": key, "detail": f.get("detail", ""), "fix": f.get("fix", ""),
+                                       "sel": f.get("selector", ""),
                                        "sev": f["severity"], "x": 1 if listn else 0})
                         boxed += 1
                 mode = "marks" if legend else ("clean" if not spots else "unboxed")
@@ -270,6 +297,25 @@ def _browser_through_guard(module):
             page.screenshot(path=str(path), type="jpeg", quality=64,
                             clip={"x": 0, "y": y0, "width": width, "height": clip_h}, full_page=True)
             out[width] = str(path)
+            pick = next((x for x in legend if x.get("key") == "contrast" and x.get("sel") and fix_css(x)),
+                        next((x for x in legend if x.get("sel") and fix_css(x)), None)) if web else None
+            if pick:  # the same screen with one boxed fix applied (contrast first: the most visible): free before/after
+                try:
+                    page.evaluate("() => { const l = document.getElementById('__pa_layer'); if (l) l.remove(); }")
+                    if page.evaluate(APPLY_JS, {"sel": pick["sel"], "css": fix_css(pick)}):
+                        page.wait_for_timeout(120)
+                        fixed = [{"box": m["box"], "label": "#%d fixed" % pick["n"], "color": "#16a34a"}
+                                 for m in marks if m.get("label") == "#%d" % pick["n"]]
+                        if fixed:
+                            page.evaluate(module.ANNOTATE_JS, fixed)
+                        state["after_n"] = pick["n"]
+                        page.screenshot(path=str(shots_dir / "after.jpg"), type="jpeg", quality=64,
+                                        clip={"x": 0, "y": y0, "width": width, "height": clip_h}, full_page=True)
+                        mj = shots_dir / "marks.json"
+                        mj.write_text(json.dumps({**json.loads(mj.read_text(encoding="utf-8")), "after_n": pick["n"],
+                                                  "after_fix": fix_css(pick)}), encoding="utf-8")
+                except Exception:  # the before/after is a bonus: never break the render
+                    pass
         return out
 
     def route(r):
