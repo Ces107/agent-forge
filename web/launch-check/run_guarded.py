@@ -148,10 +148,14 @@ def _browser_through_guard(module):
                 mode = "botcheck"
             elif web:
                 doc_h = page.evaluate("() => document.documentElement.scrollHeight")
-                y0 = best_window(spots, width, doc_h)
+                top = [f for f in spots if ranks.get(key_of(f), 99) <= 3 and visible_spot(f)]
+                listed = [f for f in spots if key_of(f) in ranks and visible_spot(f)]
+                y0 = best_window(top or listed or spots, width, doc_h)  # the screen that shows the free top 3
                 for key in order:  # only problems from the result's list, with its numbers: the free top 3 first,
                     if ranks[key] > 3 and len(legend) >= 2:  # then later ones until at least 2 are boxed
                         break
+                    if ranks[key] > 3 and key == "images":  # invisible (missing alt/size): never a filler box
+                        continue
                     fs = [f for f in spots if key_of(f) == key]
                     got = [bx for f in fs for bx in boxes_in_view(f, width, 3, y0)][:3]
                     if got:

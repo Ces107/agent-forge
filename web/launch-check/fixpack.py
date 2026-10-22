@@ -429,8 +429,9 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                      + "</div>")
     proof = ""
     if n > 3:
-        f4 = fix[3]
-        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #4 of {n}, unlocked as a sample</div>'
+        k = next((i for i in range(3, n) if fix[i]["area"] != "security"), 3)  # a visible fix beats a header
+        f4 = fix[k]
+        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of {n}, unlocked as a sample</div>'
                  f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
                  + (f'<div class="fp-more">+{n - 4} more problem{"s" if n - 4 != 1 else ""} like this in the pack</div>'
                     if n > 4 else "") + "</div>")

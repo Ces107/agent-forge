@@ -650,7 +650,7 @@ def phone_slot(report, job_id, state, stats=None):
     if state == "done" and mode == "clean":
         note = "No phone layout problems found on the first screen."
     elif state == "done" and mode == "unboxed":
-        note = "The problems found are further down the page."
+        note = "None of the listed problems shows on the first screen; the Fix Pack renders the whole page."
     elif state == "done" and counts.get("lower"):
         note = "Your first screen had no problems; this is the part of the page further down where they start."
     bx = "Rendered in a real phone browser (375 px). Numbers match the problem list."
@@ -717,7 +717,7 @@ li.appendChild(b);li.appendChild(document.createTextNode(' '+x.title));if(x.n>3)
 k.className='lc-inpk';k.textContent='in your Fix Pack';li.appendChild(document.createTextNode(' '));li.appendChild(k);}
 leg.appendChild(li);});
 var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
-if(d.mode==='unboxed')note.textContent='The problems found are further down the page.';
+if(d.mode==='unboxed')note.textContent='None of the listed problems shows on the first screen; the Fix Pack renders the whole page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
 };i.onerror=function(){fail();};i.src=u+'.jpg';}
 else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site showed a bot check to our browser, so we couldn\u2019t render it.</b> The scan still read your page code.';}
