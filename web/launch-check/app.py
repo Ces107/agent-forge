@@ -1285,10 +1285,15 @@ def roast_png(host, score, burns, phone_jpg=None, title="ROASTED"):
             x = 60 + frame.width + 50
         except Exception:  # a broken render never breaks the card
             x = 70
-    d.text((x, 60), f"{title} · {host[:30]}", font=_font(30), fill=(251, 146, 60))
-    d.text((x, 105), f"{score}", font=_font(130), fill=(248, 113, 113) if score < 75 else (250, 204, 21))
-    d.text((x + (90 if score < 10 else 170 if score < 100 else 250), 175), "/100", font=_font(40), fill=(148, 163, 184))
-    y = 270
+    d.text((x, 50), title, font=_font(30 if len(title) < 22 else 24), fill=(251, 146, 60))
+    d.text((x, 92), host[:38], font=_font(24), fill=(148, 163, 184))  # its own line: never cut off
+    if title.startswith("PASSES"):  # a pass carries no score
+        y = 160
+    else:
+        d.text((x, 125), f"{score}", font=_font(120), fill=(248, 113, 113) if score < 75 else (250, 204, 21))
+        d.text((x + (85 if score < 10 else 160 if score < 100 else 235), 190), "/100", font=_font(38),
+               fill=(148, 163, 184))
+        y = 275
     width = 34 if x > 300 else 48
     for b in burns[:3]:  # the same three burns as the page
         for line in textwrap.wrap(b, width + 6)[:3]:
