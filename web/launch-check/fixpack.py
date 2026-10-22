@@ -494,7 +494,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
         if dfy_on() and report.get("score", 100) < 85:  # the founder fix is offered where it is worth $39
             button += (f'<form method="post" action="/buy/{esc(job_id)}?tier=dfy"><button class="fp-dfy" type="submit">'
                        f'Or the founder fixes it for you — {DFY_PRICE}</button></form><div class="fp-terms">Within 24 h, '
-                       f'by email or a pull request · {DFY_SLOTS} launch slots · refund if it isn\'t done</div>')
+                       f'by email or a pull request · {DFY_SLOTS} launch slots · paid only after it\'s done</div>')
     else:
         button = ('<a class="fp-buy" href="/fix/demo">See a sample Fix Pack</a>'
                   f'<div class="fp-terms">Checkout opens soon · launch price {PRICE} <s>{PRICE_WAS}</s> · one-time · '
