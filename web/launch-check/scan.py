@@ -280,6 +280,20 @@ def render_slot_free():
         return _queued[0] < RENDER_QUEUE_MAX
 
 
+def visibly_changed(before_path, after_path, min_pixels=400):
+    """A before/after is only shown when the fix changes what you see (not just the green outline)."""
+    try:
+        from PIL import Image, ImageChops
+        a = Image.open(before_path).convert("L")
+        b = Image.open(after_path).convert("L")
+        if a.size != b.size:
+            return True
+        diff = ImageChops.difference(a, b).point(lambda v: 255 if v > 40 else 0)
+        return sum(1 for v in diff.getdata() if v) >= min_pixels
+    except Exception:  # can't compare: keep it (the render itself succeeded)
+        return True
+
+
 def render_phone(url, marks, budget=ASYNC_BUDGET, listn=0):
     """Background render (after the result is shown): the page at 375 px with the given problems boxed.
     marks = {phone key: rank in the result list} (may be empty); only those are boxed, numbered with that rank
@@ -319,9 +333,9 @@ def render_phone(url, marks, budget=ASYNC_BUDGET, listn=0):
             if stats.get("mode") == "unstyled":
                 sys.stderr.write(f"render unstyled css={stats.get('css')}\n")
             after = os.path.join(shots, "after.jpg")
-            if os.path.isfile(after) and os.path.getsize(after) < 900_000:
+            if os.path.isfile(after) and os.path.getsize(after) < 900_000 and visibly_changed(path, after):
                 with open(after, "rb") as fh:
-                    stats["_after"] = fh.read()  # the same screen with fix #1 applied (memory only, never logged)
+                    stats["_after"] = fh.read()  # the same screen with one fix applied (memory only, never logged)
             with open(path, "rb") as fh:
                 return fh.read(), stats
         return None

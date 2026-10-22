@@ -733,8 +733,10 @@ def roast_card(report, job_id, phone=None, n_all=None):
                 '<a class="rb" href="#lc-ps">Try the render again below</a></section>')
     fix = other_items(report)
     burns = roast_lines(roast_items(report, phone), urlparse.urlsplit(report["final_url"]).hostname or "")
-    boxes = len(((phone or {}).get("stats") or {}).get("legend") or [])
-    if boxes < 2 or not burns:  # fewer than two boxed failures on the picture: it passes, no roast and no sale
+    legend = ((phone or {}).get("stats") or {}).get("legend") or []
+    boxes = len(legend)
+    severe = any(x.get("sev") == "HIGH" for x in legend)  # a boxed high-severity break is never a "pass"
+    if (boxes < 2 and not severe) or not burns:  # fewer than two boxed failures: it passes, no roast and no sale
         host = urlparse.urlsplit(report["final_url"]).hostname or ""
         return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div><div class="rs">'
                 f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: '
@@ -843,6 +845,8 @@ def phone_slot(report, job_id, state, stats=None):
                 'page code.</section>')
     counts = phone_counts(stats)
     n = len(other_items(report))
+    lg = (stats or {}).get("legend") or []
+    passes = state == "done" and len(lg) < 2 and not any(x.get("sev") == "HIGH" for x in lg)  # no pitch on a pass
     legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}'
                      + (' <span class="lc-inpk">in your Fix Pack</span>' if x["n"] > 3 or x["x"] else "") + '</li>'
                      for x in counts.get("legend", []))
@@ -862,7 +866,7 @@ def phone_slot(report, job_id, state, stats=None):
             f'data-done="{1 if state == "done" else 0}"><h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn" id="lc-bx">'
             f'{esc(bx)}</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
-            f'{esc(note)}</p>{fixpack_cta(job_id, n + counts.get("extra", 0), min(3, n))}</div></div>'
+            f'{esc(note)}</p>{"" if passes else fixpack_cta(job_id, n + counts.get("extra", 0), min(3, n))}</div></div>'
             + before_after(job_id, stats if state == "done" else None) + '</section>')
 
 
@@ -1549,8 +1553,9 @@ class Handler(BaseHTTPRequestHandler):
                 # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
                 bh = urlparse.urlsplit(((job or {}).get("report") or {}).get("final_url", "")).hostname or host
                 lines = roast_lines(items, bh)
-                nbox = len((ph.get("stats") or {}).get("legend") or [])
-                passes = jpg and (nbox < 2 or not lines)
+                lg = (ph.get("stats") or {}).get("legend") or []
+                nbox = len(lg)
+                passes = jpg and ((nbox < 2 and not any(x.get("sev") == "HIGH" for x in lg)) or not lines)
                 if passes:
                     lines = ["Hard to roast: " + ("nothing" if not nbox else "only one thing") + " worth boxing on a phone."]
                 png = (roast_png(host, now, lines, jpg, "PASSES ON A PHONE" if passes else "ROASTED") if jpg

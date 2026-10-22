@@ -403,7 +403,8 @@ for (const el of all) {
     // an image-only link of 24 px or more (logo, award badge, social icon) is a picture, not a cramped button
     const imageOnly = !(el.innerText || '').trim() && !!el.querySelector('img,svg,picture') && Math.max(tr.width, tr.height) >= 24;
     // the home/logo link and third-party floating widgets (feedback, chat) aren't the site's own buttons
-    const homeLink = el.tagName === 'A' && /^(\/|\/#?|#top)?$/.test(el.getAttribute('href') || '') && r.top < 120;
+    let homeLink = false; try { const u = new URL(el.href, location.href);  // relative or absolute link to the home page
+      homeLink = el.tagName === 'A' && u.origin === location.origin && /^\/?(index\.html?)?$/.test(u.pathname) && r.top < 140; } catch (e) {}
     if (!inline && !el.closest('[aria-hidden=true]') && (tr.width < 44 || tr.height < 44) && !srOnly(el)
         && shown(el, r) && !imageOnly && !homeLink && !inFloating(el))
       R.taps.push({sel: sel(el), box: box(r), w: Math.round(tr.width), h: Math.round(tr.height)});

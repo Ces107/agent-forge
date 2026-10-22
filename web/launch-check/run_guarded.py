@@ -114,9 +114,15 @@ DESKTOP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
               "Safari/537.36")
 
 APPLY_JS = r"""(a) => {
+  // only the element(s) drawn inside the boxed spots: a broad selector must not restyle other buttons
+  const sx = window.scrollX, sy = window.scrollY;
+  const hit = (e) => { const r = e.getBoundingClientRect(); const L = r.left + sx, T = r.top + sy;
+    return a.boxes.some(b => L < b[0] + b[2] && L + r.width > b[0] && T < b[1] + b[3] && T + r.height > b[1]
+      && Math.abs(r.width - b[2]) < 40 && Math.abs(r.height - b[3]) < 40); };
   let n = 0;
   for (const sel of a.sel.split(/;\s*\d+ selectors?:\s*|,\s*(?=[a-z#.])/i).slice(0, 2)) {
-    try { document.querySelectorAll(sel.trim()).forEach(e => { e.style.cssText += ';' + a.css; n++; }); } catch (e) {}
+    try { document.querySelectorAll(sel.trim()).forEach(e => { if (hit(e)) { e.style.cssText += ';' + a.css; n++; } }); }
+    catch (e) {}
   }
   return n;
 }"""
@@ -183,8 +189,8 @@ def _browser_through_guard(module):
                 if bx and len(bx) == 4 and bx[2] >= 2 and bx[3] >= 2 and y0 <= bx[1] < y0 + clip_h - 12
                 and bx[0] < width][:cap]
 
-    def visible_spot(f):
-        return key_of(f) != "images"
+    def visible_spot(f):  # structure problems (heading order, image labels) are listed, never boxed on the picture
+        return key_of(f) not in ("images", "headings")
 
     tap_boxes = {}  # width -> every small tap target's box, for WCAG 2.2's spacing exception
 
@@ -326,10 +332,11 @@ def _browser_through_guard(module):
             if pick:  # the same screen with one boxed fix applied (contrast first: the most visible): free before/after
                 try:
                     page.evaluate("() => { const l = document.getElementById('__pa_layer'); if (l) l.remove(); }")
-                    if page.evaluate(APPLY_JS, {"sel": pick["sel"], "css": fix_css(pick)}):
+                    pboxes = [m["box"] for m in marks if m.get("label") == "#%d" % pick["n"]]
+                    if page.evaluate(APPLY_JS, {"sel": pick["sel"], "css": fix_css(pick), "boxes": pboxes}):
                         page.wait_for_timeout(120)
-                        fixed = [{"box": m["box"], "label": "#%d fixed" % pick["n"] if i == 0 else "", "color": "#16a34a"}
-                                 for i, m in enumerate(m2 for m2 in marks if m2.get("label") == "#%d" % pick["n"])]
+                        fixed = [{"box": m["box"], "label": "", "color": "#16a34a"}  # outline only: nothing covers the fix
+                                 for m in marks if m.get("label") == "#%d" % pick["n"]]
                         if fixed:
                             page.evaluate(module.ANNOTATE_JS, fixed)
                         state["after_n"] = pick["n"]
