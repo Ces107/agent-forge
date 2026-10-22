@@ -689,6 +689,20 @@ class StripeCheckout(unittest.TestCase):
             srv.shutdown()
 
 
+class StripeAmounts(unittest.TestCase):
+    def test_cheap_link_never_unlocks_the_pack(self):
+        real = fixpack.stripe_session
+        try:
+            fixpack.stripe_session = lambda s: {"payment_status": "paid", "status": "complete", "amount_total": 200,
+                                                "client_reference_id": "X" * 24}
+            self.assertEqual(fixpack.stripe_paid_ref("cs_test_" + "a" * 20, 300), "")       # $2 paid, $3 product
+            self.assertEqual(fixpack.stripe_paid_ref("cs_test_" + "a" * 20, 200), "X" * 24)  # the $2 OG pack
+            fixpack.stripe_session = lambda s: {"payment_status": "unpaid", "status": "open", "amount_total": 900}
+            self.assertEqual(fixpack.stripe_paid_ref("cs_test_" + "a" * 20, 300), "")
+        finally:
+            fixpack.stripe_session = real
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),

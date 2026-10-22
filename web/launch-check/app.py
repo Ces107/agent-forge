@@ -742,7 +742,7 @@ def roast_card(report, job_id, phone=None, n_all=None):
         if boxes and burns:
             return (f'<section class="lc-roast"><div class="rk">ONE THING TO FIX ON A PHONE · {esc(host)}</div>'
                     f'<div class="rs">{report["score"]}<span>/100</span></div><ol><li>{esc(burns[0])}</li></ol>'
-                    f'<p class="rv">Everything else we could box on a phone looks fine.</p>'
+                    f'<p class="rv">One problem is boxed on your phone screen; the full list and every fix are below.</p>'
                     + (f'<div style="margin-top:10px">{fixpack.fix_link(job_id)}</div>' if fixpack.FIX_URL else "")
                     + '</section>')
         return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div>'
@@ -1439,7 +1439,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", csp or (
                          f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; "
                          "connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
-                         "form-action 'self' https://*.polar.sh; base-uri 'none'; "
+                         # a /buy POST redirects to the checkout host: browsers check form redirects against this list
+                         "form-action 'self' https://*.polar.sh https://buy.stripe.com https://checkout.stripe.com; "
+                         "base-uri 'none'; "
                          "frame-ancestors 'none'"))
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -1458,7 +1460,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parts = urlparse.urlsplit(self.path)
         path = parts.path
-        if path == "/og" or path.startswith("/og/"):  # OG image + favicon maker: all in ogmaker.py
+        if (path == "/og" or path.startswith("/og/")) and path != "/og/paid":  # OG maker: all in ogmaker.py
             import ogmaker
             return ogmaker.handle_get(self, path, parts.query)
         if path == "/":
@@ -1475,6 +1477,20 @@ class Handler(BaseHTTPRequestHandler):
             keys = (urlparse.parse_qs(parts.query).get("k") or ["1"])[0] != "0"  # k=0: a link made for someone else
             return self.send(200, page(n, "roast", url_value=pre, src=src, autostart=bool(pre), keys=keys), nonce=n,
                              cache="no-cache")
+        if path == "/og/paid" and fixpack.STRIPE_KEY:  # the $2 OG pack's Payment Link comes back here
+            import ogmaker
+            n = secrets.token_urlsafe(16)
+            try:
+                ref = fixpack.stripe_paid_ref((urlparse.parse_qs(parts.query).get("session_id") or [""])[0],
+                                              int(os.environ.get("LC_OG_CENTS", "200")))
+            except Exception:  # Stripe unreachable
+                ref = ""
+            link = ogmaker.pack_link_for_ref(ref) if ref else None
+            if not link:
+                return self.send(402, page(n, error="We couldn't confirm the payment yet, or the preview expired. Reload "
+                                                    "in a minute; if it still fails, reply to your Stripe receipt."), nonce=n)
+            count("og_paid", "dev", "")
+            return self.send(303, "", extra={"Location": link})
         if path == "/paid" and fixpack.STRIPE_ON:  # Stripe Payment Link comes back here: verify, unlock, open the pack
             n = secrets.token_urlsafe(16)
             sid_q = (urlparse.parse_qs(parts.query).get("session_id") or [""])[0]

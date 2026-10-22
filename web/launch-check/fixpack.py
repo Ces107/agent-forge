@@ -381,17 +381,31 @@ def stripe_checkout_url(scan_id: str) -> str:
     return f"{STRIPE_LINK}{sep}client_reference_id={urlparse.quote(scan_id)}"
 
 
-def stripe_paid_scan(session_id: str) -> str:
-    """The scan id of a paid, complete Checkout Session, else ''."""
+def stripe_session(session_id: str) -> dict:
+    """A Checkout Session, fetched with the secret key ({} when the id is malformed)."""
     if not re.fullmatch(r"cs_(test|live)_[A-Za-z0-9]{10,200}", session_id or ""):
-        return ""
+        return {}
     req = urllib.request.Request(f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
                                  headers={"Authorization": "Basic " + base64.b64encode((STRIPE_KEY + ":").encode()).decode()})
     with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 - fixed https host
-        data = json.loads(resp.read(1_000_000))
+        return json.loads(resp.read(1_000_000))
+
+
+def stripe_paid_ref(session_id: str, min_cents: int) -> str:
+    """client_reference_id of a paid, complete session that paid at least min_cents, else ''."""
+    data = stripe_session(session_id)
     if data.get("payment_status") != "paid" or data.get("status") != "complete":
         return ""
+    if int(data.get("amount_total") or 0) < min_cents:  # a cheaper link never unlocks a dearer product
+        return ""
     return str(data.get("client_reference_id") or "")
+
+
+PACK_CENTS = int(os.environ.get("LC_PACK_CENTS", "300"))
+
+
+def stripe_paid_scan(session_id: str) -> str:
+    return stripe_paid_ref(session_id, PACK_CENTS)
 
 
 # ------------------------------------------------------------------------------------------------ Polar
