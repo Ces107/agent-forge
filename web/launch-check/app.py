@@ -577,7 +577,7 @@ def fix_prompt(report, v="dev", src=""):
 
 
 ROAST = {  # one true, funny line per problem: every burn is a finding on the page, never invented
-    "phone-tap-target": "Your buttons are so small only ants can sign up.",
+    "phone-tap-target": "Your buttons are so small only ants can tap them.",
     "phone-contrast": "Your text is playing hide-and-seek with the background. The background is winning.",
     "phone-overflow": "Your page is wider than the phone. Sideways scrolling: very 2009.",
     "phone-fixed-width": "Parts of your page refuse to fit on a phone. Bold of them.",
@@ -606,6 +606,22 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
     "csp-missing": "Your security headers took the day off.",
     "hsts-missing": "Browsers aren't told to always use HTTPS. Trust issues, but backwards.",
     "clickjacking": "Any site can frame yours invisibly. Very trusting of you.",
+    "search-render-blocking-js": "Scripts in the page head make phones stare at a blank screen first.",
+    "search-html-heavy": "Your HTML is so heavy the phone needs a minute to carry it.",
+    "search-llms-invalid": "Your llms.txt exists, but AI assistants can't make sense of it.",
+    "search-llms-soft404": "Ask for your llms.txt and you get a page that pretends to be one.",
+    "search-sitemap-invalid": "You have a sitemap. Google just can't read it.",
+    "search-robots-soft404": "Your robots.txt is really a web page in disguise. Crawlers are confused.",
+    "search-title-duplicate": "Every page has the same title. Google can't tell them apart either.",
+    "search-desc-duplicate": "Every page has the same description. Copy-paste energy.",
+    "search-answer-not-concise": "Ask what you do and your page answers with a novel.",
+    "search-jsonld-required": "Your structured data is missing the fields Google actually reads.",
+    "search-no-compression": "Your HTML travels uncompressed. Every visitor pays for it.",
+    "speed-heavy-page": "Your page is heavy enough to need its own moving truck.",
+    "heavy-page": "Your page is heavy enough to need its own moving truck.",
+    "js-errors": "Your page throws errors in the console while it says hello.",
+    "nosniff-missing": "One small security header is missing. Small, but it's free to add.",
+    "mixed-content": "Some files still load over plain http. Browsers notice.",
 }
 
 
@@ -613,7 +629,7 @@ def roast_lines(items):
     """items = [(rule, title)] in list order -> up to 3 burns (titles as plain fallback) + a verdict line."""
     burns = []
     for rule, title in items:
-        line = ROAST.get(rule) or (f"{title}. Bold choice." if title else "")
+        line = ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
         if not line:
             continue
         if line not in burns:
@@ -633,23 +649,36 @@ def roast_verdict(score):
     return "We need to talk before you launch."
 
 
-def roast_card(report, job_id):
+def roast_items(report, phone=None):
+    """Burn order shared by the page and the card: the boxed problems first, then the problem list."""
+    items = [(f["rule"], scanner.lc.short(f["title"], 90)) for f in other_items(report)]
+    if phone and phone.get("jpg"):
+        items = [("phone-" + x.get("key", ""), "") for x in (phone.get("stats") or {}).get("legend") or []] + items
+    return items
+
+
+def roast_card(report, job_id, phone=None, n_all=None):
     fix = other_items(report)
-    burns = roast_lines([(f["rule"], scanner.lc.short(f["title"], 90)) for f in fix])
+    burns = roast_lines(roast_items(report, phone))
+    n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
     page_url = f"{SITE}/r/{job_id}"
     tweet = urlparse.quote(f"I got my site roasted: {report['score']}/100. {burns[0] if burns else ''} {page_url}")
     return (f'<section class="lc-roast"><div class="rk">ROASTED · {esc(host)}</div><div class="rs">{report["score"]}'
             f'<span>/100</span></div><p class="rv">{esc(roast_verdict(report["score"]))}</p><ol>{lis}</ol>'
-            
+            f'<div class="rsh"><a class="rb" href="https://x.com/intent/post?text={tweet}" rel="noopener" '
             f'target="_blank">Share your roast</a> <a class="rb" href="/share/{esc(job_id)}.png?roast=1" '
-            f'rel="noopener">Roast card image</a> <span>Every burn is a real problem. The fixes are below.</span></div>'
-            f'</section>')
+            f'rel="noopener">Roast card image</a> <span>Every burn is a real problem.</span></div>'
+            + (f'<form method="post" action="/buy/{esc(job_id)}"><button class="rbuy" type="submit">Fix all '
+               f'<span class="lc-n">{n_all}</span> before anyone else sees them — {fixpack.PRICE}</button></form>'
+               if fixpack.CHECKOUT_ON else '<a class="rbuy" href="#lc-fp">See every fix below</a>')
+            + '</section>')
 
 
 ROAST_CSS = """
 .lc-roast{background:#0f172a;color:#f8fafc;border-radius:22px;padding:22px 24px;margin:0 0 14px}
+.lc-roast .rbuy{display:inline-block;margin-top:12px;background:#22c55e;color:#04210f;border:0;border-radius:12px;padding:12px 18px;font:inherit;font-size:17px;font-weight:800;text-decoration:none;cursor:pointer}
 .lc-roast .rk{font-weight:800;letter-spacing:.08em;color:#fb923c;font-size:13px}
 .lc-roast .rs{font-size:64px;font-weight:900;line-height:1}.lc-roast .rs span{font-size:22px;color:#94a3b8}
 .lc-roast .rv{font-size:18px;font-weight:700;margin:4px 0 10px}.lc-roast ol{margin:0 0 12px;padding-left:22px}
@@ -708,12 +737,12 @@ def phone_counts(stats):
             "total": total, "lower": int(stats.get("y0", 0) or 0) > 0}
 
 
-def fixpack_cta(job_id, n):
-    """One count everywhere: n = the problem list's length (3 free, the rest in the pack)."""
-    more = (f"{n - 3} more problem{'s' if n - 3 != 1 else ''} in your Fix Pack · every one boxed on phone, tablet and "
-            f"desktop" if n > 3 else "Fix Pack: every fix boxed on phone, tablet and desktop, with the files")
+def fixpack_cta(job_id, n, free=3):
+    """One count everywhere: n = all problems (list + what the real render adds), free = how many the page shows."""
+    more = (f"{n - free} more problem{'s' if n - free != 1 else ''} in your Fix Pack · every one boxed on phone, tablet and "
+            f"desktop" if n > free else "Fix Pack: every fix boxed on phone, tablet and desktop, with the files")
     if fixpack.CHECKOUT_ON and job_id:
-        label = f"Get all {n} fixes" if n > 3 else "Get my Fix Pack"
+        label = f'Get all <span class="lc-n">{n}</span> fixes' if n > 3 else "Get my Fix Pack: files + renders"
         button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy fp-sm" type="submit">{label} '
                   f'— {fixpack.PRICE}</button></form>')
     else:
@@ -753,7 +782,7 @@ def phone_slot(report, job_id, state, stats=None):
             f'data-done="{1 if state == "done" else 0}"><h2>Your site on a phone</h2><div class="lc-ph"><div>{wait}<img id="lc-pi" alt="Your page at 375 px wide '
             f'with problems boxed"{src}{"" if state == "done" else " hidden"}></div><div><p class="lc-phn" id="lc-bx">'
             f'{esc(bx)}</p><ul id="lc-leg">{legend}</ul><p class="lc-phn" id="lc-note">'
-            f'{esc(note)}</p>{fixpack_cta(job_id, n + counts.get("extra", 0))}</div></div></section>')
+            f'{esc(note)}</p>{fixpack_cta(job_id, n + counts.get("extra", 0), min(3, n))}</div></div></section>')
 
 
 def summary_of(report, job):
@@ -812,7 +841,10 @@ k.className='lc-inpk';k.textContent='in your Fix Pack';li.appendChild(document.c
 leg.appendChild(li);});
 if(!(d.legend||[]).length){var bx=document.getElementById('lc-bx');if(bx)bx.textContent='Rendered in a real phone browser (375 px).';}
 var tn=+(s.getAttribute('data-n')||0)+(d.extra||0),mo=document.getElementById('lc-more');
-if(mo&&d.extra&&tn>3)mo.firstChild.textContent=(tn-3)+' more problem'+(tn-3===1?'':'s')+' in your Fix Pack · every one boxed on phone, tablet and desktop · $9 (refund if it doesn’t help)';
+if(d.extra){document.querySelectorAll('.lc-n').forEach(function(e){e.textContent=tn;});
+var th=document.getElementById('lc-t3h');if(th){var sh=+th.getAttribute('data-shown');th.textContent='Top '+sh+' problems of '+tn;}
+var fs=document.getElementById('fp-sub');if(fs&&tn>3)fs.textContent=tn+' problems found: '+Math.min(3,tn)+' free above, all '+tn+' fixed here, plus the files your site is missing. Locked until checkout.';}
+var fr=Math.min(3,+(s.getAttribute('data-n')||0));if(mo&&d.extra&&tn>fr)mo.firstChild.textContent=(tn-fr)+' more problem'+(tn-fr===1?'':'s')+' in your Fix Pack · every one boxed on phone, tablet and desktop · $9 (refund if it doesn’t help)';
 var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent='No phone layout problems found on the first screen.';
 if(d.mode==='unboxed')note.textContent='None of the listed problems shows on the first screen; the Fix Pack renders the whole page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
@@ -828,7 +860,8 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}</li>" for f in fix[:3])
-    free = (f'<section class="lc-top3"><h2>Top {min(3, n)} problems{f" of {n}" if n > 3 else ""}</h2><ol>{top3}</ol>'
+    free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
+            f'{f" of {n}" if n > 3 else ""}</h2><ol>{top3}</ol>'
             f'<div class="ask"><div class="h">Free: paste this to your AI</div><button id="lc-copy" type="button">Copy for '
             f'your AI</button><pre id="p">{esc(prompt)}</pre></div><p class="lc-nc">Not checked in the free scan: tablet '
             f'and desktop renders, hover states, re-scoring after fixes.</p></section>' if n else
@@ -846,7 +879,9 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
         share_meta = (f'<meta property="og:title" content="{esc(host)}: launch score {before} → {report["score"]}">'
                       f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
                       f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
-    roast = roast_card(report, job_id) if v == "roast" and job_id else ""
+    ph = (JOBS.get(job_id) or {}).get("phone") if job_id else None
+    roast = (roast_card(report, job_id, ph, n + phone_counts((ph or {}).get("stats")).get("extra", 0))
+             if v == "roast" and job_id else "")
     if roast and not share_meta:  # the result link previews as the roast card wherever it's pasted
         img = f"{SITE}/share/{job_id}.png?roast=1"
         host = urlparse.urlsplit(report["final_url"]).hostname or ""
@@ -1306,7 +1341,9 @@ class Handler(BaseHTTPRequestHandler):
                     items = [(x.get("r", ""), x.get("t", "")) for x in (RESULTS.get(sh.group(1)) or {}).get("top3", [])]
                 ph = (job or {}).get("phone") or LASTING_PHONE.get(sh.group(1)) or {}
                 jpg = ph.get("jpg")
-                if jpg:  # the card roasts what its picture shows first: the boxed problems
+                if job and job.get("report"):
+                    items = roast_items(job["report"], ph)
+                elif jpg:
                     items = [("phone-" + x.get("key", ""), "") for x in (ph.get("stats") or {}).get("legend") or []] + items
                 png = roast_png(host, now, roast_lines(items), jpg)
                 if not png:

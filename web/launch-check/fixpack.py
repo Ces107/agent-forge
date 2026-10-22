@@ -431,7 +431,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
     if n > 3:
         k = next((i for i in range(3, n) if fix[i]["area"] != "security"), 3)  # a visible fix beats a header
         f4 = fix[k]
-        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of {n}, unlocked as a sample</div>'
+        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of <span class="lc-n">{n}</span>, unlocked as a sample</div>'
                  f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
                  + (f'<div class="fp-more">+{n - 4} more problem{"s" if n - 4 != 1 else ""} like this in the pack</div>'
                     if n > 4 else "") + "</div>")
@@ -440,11 +440,11 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
               'boxed</div>')
     first = esc(steps[0]) if steps else ""
     prompt = (f'<div class="fp-prompt"><div class="fp-fn">One fix prompt for Lovable, Bolt, Cursor or Claude Code '
-              f'<span>(all {n} problems + where each file goes)</span></div><pre>1. {first}</pre>'
+              f'<span>(all <span class="lc-n">{n}</span> problems + where each file goes)</span></div><pre>1. {first}</pre>'
               + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(len(steps) - 1, 5))}</pre>'
                  if len(steps) > 1 else "") + "</div>")
     if CHECKOUT_ON:
-        label = f"Get all {n} fixes" if n > 3 else "Get my Fix Pack"
+        label = f'Get all <span class="lc-n">{n}</span> fixes' if n > 3 else "Get my Fix Pack: files + renders"
         button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">{label} '
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · re-scan free for 7 days · refund if it doesn\'t '
@@ -455,7 +455,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                   'instant download · re-scan free for 7 days · refund if it doesn\'t help</div>')
     sub = (f"{n} problems found: 3 free above, all {n} fixed here, plus the files your site is missing."
            if n > 3 else "Generated for your site: the files, the renders and the prompt.")
-    return (f'<section class="fp"><h2>Your Fix Pack for {esc(host)}</h2><p class="fp-sub">{esc(sub)} Locked until '
+    return (f'<section class="fp" id="lc-fp"><h2>Your Fix Pack for {esc(host)}</h2><p class="fp-sub" id="fp-sub">{esc(sub)} Locked until '
             f'checkout.</p>{proof}<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">'
             f'{proof_line()}{button}</div></section>')
 

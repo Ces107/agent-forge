@@ -578,14 +578,14 @@ class Roast(unittest.TestCase):
                                  ("csp-missing", "y"), ("heavy-js", "z")])
         self.assertEqual(len(lines), 3)
         self.assertIn("ants", lines[0])
-        self.assertEqual(lines[1], "Odd thing. Bold choice.")  # unknown rule: its own title, nothing invented
+        self.assertNotIn("Bold choice", " ".join(lines))  # unknown rules never get an invented joke
 
     def test_roast_landing_and_card(self):
         self.assertIn("Roast my site", app.page("n", "roast", url_value="a.com", autostart=True))
         rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
         card = app.roast_card(rep, "J" * 24)
         self.assertIn("ROASTED", card)
-        self.assertIn("ants can sign up", card)
+        self.assertIn("ants can tap them", card)
         png = app.roast_png("a.com", 64, ["Burn one.", "Burn two."])
         self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
 
@@ -669,8 +669,8 @@ class PhoneFunnel(unittest.TestCase):
             html_ = fixpack.locked_preview(rep, "J" * 24, None, "https://x", demo=False)
         finally:
             fixpack.CHECKOUT_ON = real
-        self.assertIn("Get all 5 fixes", html_)
-        self.assertIn("Problem #4 of 5, unlocked as a sample", html_)
+        self.assertIn('Get all <span class="lc-n">5</span> fixes', html_)
+        self.assertIn('Problem #4 of <span class="lc-n">5</span>, unlocked as a sample', html_)
         self.assertNotIn("spots", html_)
         lines, missing = fixpack.preview_lines("meta-tags.html", fixpack.meta_tags_html(rep), rep)
         self.assertGreater(missing, 0)
