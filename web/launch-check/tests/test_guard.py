@@ -572,6 +572,24 @@ class Round23(unittest.TestCase):
         self.assertNotIn("for 10 minutes", Path(app.__file__).read_text(encoding="utf-8"))
 
 
+class Roast(unittest.TestCase):
+    def test_roast_lines_are_real_findings(self):
+        lines = app.roast_lines([("phone-tap-target", "x"), ("phone-tap-target", "x"), ("unknown-rule", "Odd thing"),
+                                 ("csp-missing", "y"), ("heavy-js", "z")])
+        self.assertEqual(len(lines), 3)
+        self.assertIn("ants", lines[0])
+        self.assertEqual(lines[1], "Odd thing. Bold choice.")  # unknown rule: its own title, nothing invented
+
+    def test_roast_landing_and_card(self):
+        self.assertIn("Roast my site", app.page("n", "roast", url_value="a.com", autostart=True))
+        rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
+        card = app.roast_card(rep, "J" * 24)
+        self.assertIn("ROASTED", card)
+        self.assertIn("ants can sign up", card)
+        png = app.roast_png("a.com", 64, ["Burn one.", "Burn two."])
+        self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),

@@ -71,6 +71,10 @@ _jobs_lock = threading.Lock()
 JOB_ID = re.compile(r"[A-Za-z0-9_-]{20,40}")
 
 VARIANTS = {
+    "roast": {"h1": "Roast my site. Your page on a phone, brutally honest.", "source": "",
+              "sub": "We open your page in a real phone browser, box what's broken and roast it. Every burn is a real "
+                     "problem with a real fix. Free, no signup.",
+              "button": "Roast my site", "example_img": True, "ex": "", "fix": ""},
     "launch": {"h1": "See your site on a phone, problems marked. Free.", "source": "",
                "sub": "Your page in a real phone browser with the top 3 problems boxed, plus what Google & ChatGPT "
                       "can't read. Under a minute, no signup.",
@@ -567,6 +571,86 @@ def fix_prompt(report, v="dev", src=""):
     return "\n".join(lines)
 
 
+ROAST = {  # one true, funny line per problem: every burn is a finding on the page, never invented
+    "phone-tap-target": "Your buttons are so small only ants can sign up.",
+    "phone-contrast": "Your text is playing hide-and-seek with the background. The background is winning.",
+    "phone-overflow": "Your page is wider than the phone. Sideways scrolling: very 2009.",
+    "phone-fixed-width": "Parts of your page refuse to fit on a phone. Bold of them.",
+    "phone-viewport-meta": "No viewport tag: on a phone your site is a postage stamp.",
+    "phone-overlap": "Your text is stacking on top of other text. It's crowded in there.",
+    "phone-clipped": "Some of your words got cut off. They had so much to say.",
+    "phone-layout-shift": "Your page jumps while it loads. Visitors tap the wrong thing and leave.",
+    "phone-images": "Your images have no labels. Screen readers just say 'image, image, image'.",
+    "phone-headings": "Your headings wander off with nothing under them.",
+    "search-sitemap-missing": "No sitemap. Google is touring your site blindfolded.",
+    "search-og-missing": "Share your link and the preview is a blank box. Mystery marketing.",
+    "og-image-missing": "Share your link and the preview has no picture. Nobody clicks a grey box.",
+    "search-schema-home-org": "Google and ChatGPT don't know who you are. Your landing page isn't telling them.",
+    "search-llms-missing": "No llms.txt, so ChatGPT gets to guess what you do. It guesses wrong.",
+    "search-img-alt-missing": "Your images have no descriptions. To Google they're just mystery rectangles.",
+    "search-js-only-content": "Google sees an empty page until your JavaScript wakes up. It doesn't wait.",
+    "search-ai-search-bot-blocked": "Your robots.txt shows ChatGPT the door, then you wonder why it never mentions you.",
+    "search-h1-missing": "No main heading. Your page is a book with no title.",
+    "desc-missing": "No description, so Google writes one for you. It's not flattering.",
+    "title-missing": "No page title. Your browser tab just says the web address.",
+    "title-default": "Your page title is still the template default. We see you, 'Vite + React'.",
+    "heavy-js": "So much JavaScript before anything works, the phone needs a coffee break.",
+    "slow-load": "Your page loads slowly enough to read a book in the meantime.",
+    "favicon-missing": "No favicon. Your tab is the generic grey globe of shame.",
+    "broken-links": "Some links lead to error pages. A treasure hunt with no treasure.",
+    "csp-missing": "Your security headers took the day off.",
+    "hsts-missing": "Browsers aren't told to always use HTTPS. Trust issues, but backwards.",
+    "clickjacking": "Any site can frame yours invisibly. Very trusting of you.",
+}
+
+
+def roast_lines(items):
+    """items = [(rule, title)] in list order -> up to 3 burns (titles as plain fallback) + a verdict line."""
+    burns = []
+    for rule, title in items:
+        line = ROAST.get(rule) or ROAST.get("phone-" + rule.split("phone-")[-1]) or f"{title}. Bold choice."
+        if line not in burns:
+            burns.append(line)
+        if len(burns) == 3:
+            break
+    return burns
+
+
+def roast_verdict(score):
+    if score >= 90:
+        return "Annoyingly good. We tried."
+    if score >= 75:
+        return "Not bad. Not launch-ready either."
+    if score >= 55:
+        return "Ship it? After these."
+    return "We need to talk before you launch."
+
+
+def roast_card(report, job_id):
+    fix = other_items(report)
+    burns = roast_lines([(f["rule"], scanner.lc.short(f["title"], 90)) for f in fix])
+    host = urlparse.urlsplit(report["final_url"]).hostname or ""
+    lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
+    page_url = f"{SITE}/r/{job_id}"
+    tweet = urlparse.quote(f"I got my site roasted: {report['score']}/100. {burns[0] if burns else ''} {page_url}")
+    return (f'<section class="lc-roast"><div class="rk">ROASTED · {esc(host)}</div><div class="rs">{report["score"]}'
+            f'<span>/100</span></div><p class="rv">{esc(roast_verdict(report["score"]))}</p><ol>{lis}</ol>'
+            
+            f'target="_blank">Share your roast</a> <a class="rb" href="/share/{esc(job_id)}.png?roast=1" '
+            f'rel="noopener">Roast card image</a> <span>Every burn is a real problem. The fixes are below.</span></div>'
+            f'</section>')
+
+
+ROAST_CSS = """
+.lc-roast{background:#0f172a;color:#f8fafc;border-radius:22px;padding:22px 24px;margin:0 0 14px}
+.lc-roast .rk{font-weight:800;letter-spacing:.08em;color:#fb923c;font-size:13px}
+.lc-roast .rs{font-size:64px;font-weight:900;line-height:1}.lc-roast .rs span{font-size:22px;color:#94a3b8}
+.lc-roast .rv{font-size:18px;font-weight:700;margin:4px 0 10px}.lc-roast ol{margin:0 0 12px;padding-left:22px}
+.lc-roast li{font-size:17px;margin:6px 0}.lc-roast .rsh span{color:#94a3b8;font-size:13px;margin-left:6px}
+.lc-roast a.rb{display:inline-block;padding:9px 14px;border-radius:10px;background:#f8fafc;color:#0f172a;font-weight:700;text-decoration:none;margin:4px 6px 4px 0}
+"""
+
+
 def phone_section(report):
     pv = report.get("phone_view") or {}
     if pv.get("mode") == "render" and pv.get("image"):
@@ -754,7 +838,14 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
         share_meta = (f'<meta property="og:title" content="{esc(host)}: launch score {before} → {report["score"]}">'
                       f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
                       f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
-    first = then + secret_banner(report) + (slot or phone_section(report)) + free + preview
+    roast = roast_card(report, job_id) if v == "roast" and job_id else ""
+    if roast and not share_meta:  # the result link previews as the roast card wherever it's pasted
+        img = f"{SITE}/share/{job_id}.png?roast=1"
+        host = urlparse.urlsplit(report["final_url"]).hostname or ""
+        share_meta = (f'<meta property="og:title" content="{esc(host)} got roasted: {report["score"]}/100">'
+                      f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
+                      f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
+    first = roast + then + secret_banner(report) + (slot or phone_section(report)) + free + preview
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
 function ok(){{b.textContent='Copied — paste it to your AI';}}
@@ -763,7 +854,7 @@ function fallback(){{var a=document.createElement('textarea');a.value=t;document
 try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a);}}}});}})();
 {PHONE_POLL_JS}</script>"""
     top = '<div class="lc-top"><a href="/">← Check another app</a></div>'
-    doc = doc.replace("</style></head><body>", FUNNEL_CSS + KEY_CSS + OFFER_CSS + fixpack.FP_CSS + RESULT_CSS
+    doc = doc.replace("</style></head><body>", ROAST_CSS + FUNNEL_CSS + KEY_CSS + OFFER_CSS + fixpack.FP_CSS + RESULT_CSS
                       + '</style><meta name="robots" content="noindex"><link rel="icon" href="/favicon.svg" '
                       'type="image/svg+xml">' + share_meta + '</head><body>' + top, 1)
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
@@ -935,6 +1026,55 @@ def use_code(code, scan_id):
     return True
 
 
+def _font(size):
+    from PIL import ImageFont
+    for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                 "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
+
+
+def roast_png(host, score, burns, phone_jpg=None):
+    """1200x630 roast card: the boxed phone render on the left, score and the first burns on the right."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return None
+    import io as _io
+    import textwrap
+    img = Image.new("RGB", (1200, 630), (15, 23, 42))
+    d = ImageDraw.Draw(img)
+    x = 70
+    if phone_jpg:
+        try:
+            ph = Image.open(_io.BytesIO(phone_jpg)).convert("RGB")
+            ph = ph.crop((0, 0, ph.width, min(ph.height, int(ph.width * 1.55))))
+            ph.thumbnail((330, 530))
+            frame = Image.new("RGB", (ph.width + 20, ph.height + 20), (2, 6, 23))
+            frame.paste(ph, (10, 10))
+            img.paste(frame, (60, (630 - frame.height) // 2))
+            x = 60 + frame.width + 50
+        except Exception:  # a broken render never breaks the card
+            x = 70
+    d.text((x, 60), f"ROASTED · {host[:30]}", font=_font(30), fill=(251, 146, 60))
+    d.text((x, 105), f"{score}", font=_font(130), fill=(248, 113, 113) if score < 75 else (250, 204, 21))
+    d.text((x + (90 if score < 10 else 170 if score < 100 else 250), 175), "/100", font=_font(40), fill=(148, 163, 184))
+    y = 270
+    width = 34 if x > 300 else 48
+    for b in burns[:2]:
+        for line in textwrap.wrap(b, width)[:3]:
+            d.text((x, y), line, font=_font(30), fill=(241, 245, 249))
+            y += 40
+        y += 18
+    d.text((x, 560), f"Get roasted: {urlparse.urlsplit(SITE).hostname}/roast", font=_font(26), fill=(148, 163, 184))
+    buf = _io.BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
 def share_png(host, before, after):
     """1200x630 before/after card for social posts."""
     try:
@@ -1049,6 +1189,12 @@ class Handler(BaseHTTPRequestHandler):
             pre = (q.get("url") or [""])[0].strip()[:2000]
             return self.send(200, page(n, v, url_value=pre, src=(q.get("utm_source") or q.get("src") or [""])[0],
                                        autostart=bool(pre)), nonce=n, cache="no-cache")
+        if path == "/roast" or path.startswith("/roast/"):  # the URL is the app: /roast/yoursite.com
+            n = secrets.token_urlsafe(16)
+            pre = urlparse.unquote(path[len("/roast/"):]).strip()[:2000] if path.startswith("/roast/") else ""
+            src = (urlparse.parse_qs(parts.query).get("src") or [""])[0]
+            return self.send(200, page(n, "roast", url_value=pre, src=src, autostart=bool(pre)), nonce=n,
+                             cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
         m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status|/phone|/phone\.jpg)?", path)
@@ -1125,7 +1271,7 @@ class Handler(BaseHTTPRequestHandler):
                              "text/plain; charset=utf-8", cache="public, max-age=3600")
         if path == "/sitemap.xml":
             return self.send(200, f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/'
-                                  f'schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url></urlset>', "application/xml",
+                                  f'schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url><url><loc>{SITE}/roast</loc></url></urlset>', "application/xml",
                              cache="public, max-age=3600")
         if path == "/llms.txt":
             return self.send(200, f"# Launch Check\n\n> {DESC}\n\n- [Check a site]({SITE}/): paste a URL, get a 0-100 "
@@ -1143,6 +1289,16 @@ class Handler(BaseHTTPRequestHandler):
                 now = (RESULTS.get(sh.group(1)) or {}).get("score")
             host = ((job or {}).get("host") or urlparse.urlsplit((RESULTS.get(sh.group(1)) or {}).get("final", "")).hostname
                     or "")
+            if "roast" in q and now is not None:
+                if job and job.get("report"):
+                    items = [(f["rule"], scanner.lc.short(f["title"], 90)) for f in other_items(job["report"])]
+                else:
+                    items = [(x.get("r", ""), x.get("t", "")) for x in (RESULTS.get(sh.group(1)) or {}).get("top3", [])]
+                jpg = ((job or {}).get("phone") or {}).get("jpg") or (LASTING_PHONE.get(sh.group(1)) or {}).get("jpg")
+                png = roast_png(host, now, roast_lines(items), jpg)
+                if not png:
+                    return self.send(404, "not found", "text/plain; charset=utf-8")
+                return self.send(200, png, "image/png", cache="public, max-age=600")
             png = share_png(host, int(b), now) if b.isdigit() and int(b) <= 100 and now is not None else None
             if not png:
                 return self.send(404, "not found", "text/plain; charset=utf-8")
