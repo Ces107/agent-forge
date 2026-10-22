@@ -33,6 +33,15 @@ from urllib import parse as urlparse
 import scan as scanner
 
 PRICE, PRICE_WAS = "$9", "$15"
+# Real before/afters from re-scans, shown next to the buy button: LC_PROOF="site.com|62|94;other.app|55|90"
+PROOF = [p.split("|") for p in os.environ.get("LC_PROOF", "").split(";") if p.count("|") == 2][:3]
+
+
+def proof_line() -> str:
+    if not PROOF:
+        return ""
+    items = " · ".join(f"{esc(h)} <b>{esc(a)} → {esc(b)}</b>" for h, a, b in PROOF)
+    return f'<div class="fp-proof">After their Fix Pack: {items}</div>'
 PAY_PROVIDER = os.environ.get("PAY_PROVIDER", "").strip().lower()
 POLAR_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
 POLAR_PRODUCT = os.environ.get("POLAR_PRODUCT_ID", "")
@@ -417,7 +426,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                   'instant download · re-scan free for 7 days · refund if it doesn\'t help</div>')
     return (f'<section class="fp"><h2>Your Fix Pack for {esc(host)}</h2>'
             f'<p class="fp-sub">Generated for your site: the files, the renders and the prompt. Locked until checkout.</p>'
-            f'<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">{button}</div></section>')
+            f'<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">{proof_line()}{button}</div></section>')
 
 
 FP_CSS = """
@@ -437,6 +446,7 @@ max-height:none}
 .fp-tl{font-size:14px;font-weight:700;color:#c2410c;margin-bottom:12px}
 .fp-prompt{margin-bottom:16px}
 .fp-cta{text-align:center}
+.fp-proof{font-size:14px;color:#14532d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 12px;margin:0 0 12px}
 .fp-buy{display:inline-block;background:#16a34a;color:#fff;border:0;border-radius:14px;padding:16px 28px;font:inherit;
 font-size:20px;font-weight:800;text-decoration:none;cursor:pointer}.fp-buy:hover{background:#15803d}
 .fp-buy s{opacity:.7;font-weight:600;margin-left:6px}

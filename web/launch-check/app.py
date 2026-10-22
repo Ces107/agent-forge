@@ -627,7 +627,7 @@ def fixpack_cta(job_id, more):
     else:
         button = '<a class="fp-buy fp-sm" href="/fix/demo">See a sample Fix Pack</a>'
     return (f'<div class="lc-side"><p class="lc-more" id="lc-more">{esc(spots)} · Fix Pack {fixpack.PRICE} (refund if it '
-            f'doesn\'t help)</p>{button}</div>')
+            f'doesn\'t help)</p>{fixpack.proof_line()}{button}</div>')
 
 
 def phone_slot(report, job_id, state, stats=None):
