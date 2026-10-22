@@ -406,7 +406,8 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
               + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(len(steps) - 1, 5))}</pre>'
                  if len(steps) > 1 else "") + "</div>")
     if CHECKOUT_ON:
-        button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">Get my Fix Pack '
+        label = (f"Unlock all {len(steps)} fix steps" if len(steps) > 1 else "Get my Fix Pack")
+        button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">{label} '
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · re-scan free for 7 days · refund if it doesn\'t '
                   'help</div>')
