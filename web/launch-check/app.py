@@ -877,6 +877,15 @@ def phone_slot(report, job_id, state, stats=None):
             + before_after(job_id, stats if state == "done" else None) + '</section>')
 
 
+def more_tools():
+    """The other small tools, each only when its link is set (no dead links)."""
+    links = [("/og", "OG image + favicon maker", True),
+             (os.environ.get("LC_PACK_URL", ""), "40 copy-paste fix prompts for Lovable/Bolt/Cursor ($1+)", False),
+             (os.environ.get("LC_EXT_URL", ""), "Phone Check for Chrome (free)", False)]
+    items = [f'<a href="{esc(u)}"{"" if local else " rel=\"noopener\""}>{esc(t)}</a>' for u, t, local in links if u]
+    return f'<p class="lc-nc" style="text-align:center">More tools: {" · ".join(items)}</p>' if items else ""
+
+
 def before_after(job_id, stats):
     """Free proof: the same phone screen with one boxed fix applied, next to the original."""
     if not stats or not stats.get("_after"):
@@ -1009,6 +1018,11 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
                       f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
                       f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
     keys_off = (report["facts"].get("assets") or {}).get("keys_off")  # a link made for someone else's site
+    rules = {f["rule"] for f in report["findings"]}
+    if rules & {"og-image-missing", "search-og-missing"}:  # no link preview card: the free maker makes one
+        preview += ('<section class="lc-top3"><p class="lc-nc"><b>Your links show no preview card.</b> Make one in 30 '
+                    'seconds with the <a href="/og">free OG image maker</a> (1200x630 card + favicon set).</p></section>')
+    preview += more_tools()
     first = (roast + then + ("" if keys_off else secret_banner(report)) + (slot or phone_section(report)) + free + preview
              + (secret_banner(report) if keys_off else ""))
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
