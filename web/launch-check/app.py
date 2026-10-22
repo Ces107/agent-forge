@@ -1433,8 +1433,9 @@ class Handler(BaseHTTPRequestHandler):
                     items = roast_items(job["report"], ph)
                 elif jpg:
                     items = [("phone-" + x.get("key", ""), "") for x in (ph.get("stats") or {}).get("legend") or []] + items
-                if not jpg and job and job.get("report") and ph.get("state", "none") == "none":
-                    start_phone(job, job["report"])  # a card without its phone picture: render it for the next fetch
+                if not jpg and job and job.get("report") and ph.get("state", "none") == "none" and not job.get("retried"):
+                    job["retried"] = True  # one retry: a card without its phone picture renders it for the next fetch
+                    start_phone(job, job["report"])
                 png = roast_png(host, now, roast_lines(items), jpg)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")

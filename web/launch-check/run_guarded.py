@@ -77,8 +77,15 @@ BOTCHECK_JS = r"""() => {
   return !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,.cf-turnstile,iframe[src*="challenges.cloudflare.com"],iframe[src*="captcha"],#px-captcha,.g-recaptcha,.h-captcha');
 }"""
 
-STYLED_JS = r"""() => [...document.querySelectorAll('link[rel~="stylesheet"]')]
-  .filter(l => !l.disabled && (!l.media || l.media === 'all' || matchMedia(l.media).matches)).every(l => !!l.sheet)"""
+STYLED_JS = r"""() => {
+  const links = [...document.querySelectorAll('link[rel~="stylesheet"]')]
+    .filter(l => !l.disabled && (!l.media || l.media === 'all' || matchMedia(l.media).matches));
+  if (!links.length) return true;
+  const rules = s => { try { return s.cssRules.length; } catch (e) { return 1; } };  // cross-origin: assume fine
+  if (!links.every(l => l.sheet && rules(l.sheet) > 0)) return false;  // a 403/HTML answer gives an empty sheet
+  const f = getComputedStyle(document.body || document.documentElement).fontFamily.toLowerCase();
+  return !/^"?times new roman"?$|^serif$/.test(f.trim());  // site CSS loaded but the page still in browser defaults
+}"""
 
 
 def _browser_through_guard(module):
