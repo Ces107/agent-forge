@@ -1424,7 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
         script = f"'nonce-{nonce}'" if nonce else "'none'"
         self.send_header("Content-Security-Policy", csp or (
                          f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; "
-                         "connect-src 'self'; form-action 'self' https://*.polar.sh; base-uri 'none'; "
+                         "connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
+                         "form-action 'self' https://*.polar.sh; base-uri 'none'; "
                          "frame-ancestors 'none'"))
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -1443,6 +1444,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parts = urlparse.urlsplit(self.path)
         path = parts.path
+        if path == "/og" or path.startswith("/og/"):  # OG image + favicon maker: all in ogmaker.py
+            import ogmaker
+            return ogmaker.handle_get(self, path, parts.query)
         if path == "/":
             q = urlparse.parse_qs(parts.query)
             v = (q.get("v") or ["dev"])[0]
@@ -1706,6 +1710,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parts = urlparse.urlsplit(self.path)
         path = parts.path
+        if path.startswith("/og/"):  # OG image + favicon maker: all in ogmaker.py
+            import ogmaker
+            return ogmaker.handle_post(self, path)
         buy = re.fullmatch(r"/buy/([A-Za-z0-9_-]{20,40})", path)
         if buy:
             if not fixpack.CHECKOUT_ON:
