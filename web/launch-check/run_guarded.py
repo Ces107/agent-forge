@@ -106,6 +106,11 @@ HIDE_CONSENT_JS = r"""() => {
   return n;
 }"""
 
+MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 "
+             "Mobile Safari/537.36")
+DESKTOP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 "
+              "Safari/537.36")
+
 STYLED_JS = r"""() => {
   const links = [...document.querySelectorAll('link[rel~="stylesheet"]')]
     .filter(l => !l.disabled && (!l.media || l.media === 'all' || matchMedia(l.media).matches));
@@ -197,7 +202,7 @@ def _browser_through_guard(module):
             boxed = 0
             if state["botcheck"]:
                 mode = "botcheck"
-            elif web and state.get("unstyled"):
+            elif web and (state.get("unstyled") or state.get("status")):
                 mode = "unstyled"  # the CSS never arrived: a measurement of this would be fiction
             elif web:
                 doc_h = page.evaluate("() => document.documentElement.scrollHeight")
@@ -245,7 +250,7 @@ def _browser_through_guard(module):
                     color = {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
                     for bx in boxes_in_view(f, width, cap=4):
                         marks.append({"box": bx, "label": "#%d" % f["rank"], "color": color})
-            if not web or state["botcheck"] or state.get("unstyled"):
+            if not web or state["botcheck"] or state.get("unstyled") or state.get("status"):
                 y0 = 0
             (shots_dir / ("marks-%d.json" % width)).write_text(json.dumps({
                 "mode": mode, "legend": legend, "boxed": boxed, "total": len(spots), "y0": y0,
@@ -280,7 +285,8 @@ def _browser_through_guard(module):
             for width in viewports:
                 mobile = width < 1024
                 ctx = browser.new_context(viewport={"width": width, "height": 812 if mobile else 900},
-                                          is_mobile=mobile, has_touch=mobile, device_scale_factor=1)
+                                          is_mobile=mobile, has_touch=mobile, device_scale_factor=1,
+                                          user_agent=MOBILE_UA if mobile else DESKTOP_UA)  # some sites 404 "Headless"
                 ctx.route("**/*", route)
                 ctx.add_init_script(module.INIT_JS)
                 page = ctx.new_page()
@@ -288,7 +294,9 @@ def _browser_through_guard(module):
                     "css", []).append(f"{resp.status} {resp.headers.get('content-type', '')[:24]}"))
                 page.on("requestfailed", lambda req: req.resource_type == "stylesheet" and state.setdefault(
                     "css", []).append(f"failed {req.failure or ''}"[:60]))
-                page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+                if resp is not None and not 200 <= resp.status < 300:
+                    state["status"] = resp.status  # an error page (404, 403, 5xx) is never measured or roasted
                 try:
                     page.wait_for_load_state("load", timeout=1500)
                 except Exception:  # slow images: measure what is there

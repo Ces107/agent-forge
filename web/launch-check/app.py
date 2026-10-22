@@ -1134,7 +1134,8 @@ def merge_render(report, stats):
     if not kinds and stats.get("mode") not in ("clean",):
         return
     boxed = {x["key"]: int(x["n"]) for x in stats.get("legend") or []}
-    report["findings"] = [f for f in report["findings"] if f["area"] != "phone" or f["rule"] in KEEP_STATIC]
+    # the render measured the page itself (viewport included): only image facts from the code stay
+    report["findings"] = [f for f in report["findings"] if f["area"] != "phone" or f["rule"] == "phone-images"]
     have = {f["rule"] for f in report["findings"]}
     for k in kinds:
         rule = "phone-" + k["key"]
@@ -1509,7 +1510,8 @@ class Handler(BaseHTTPRequestHandler):
                     job["retried"] = True  # one retry: a card without its phone picture renders it for the next fetch
                     start_phone(job, job["report"])
                 # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
-                png = roast_png(host, now, roast_lines(items, host), jpg) if jpg else roast_hold_png(host)
+                bh = urlparse.urlsplit(((job or {}).get("report") or {}).get("final_url", "")).hostname or host
+                png = roast_png(host, now, roast_lines(items, bh), jpg) if jpg else roast_hold_png(host)  # page's wording
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")
