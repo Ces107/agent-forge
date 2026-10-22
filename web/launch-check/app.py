@@ -925,8 +925,8 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
-                   + (f'<small class="lc-fx">{esc(f["fix"][:240])}</small>' if (f.get("boxed") or f.get("measured")) and f.get("fix")
-                      else "") + "</li>" for f in fix[:3])
+                   + (f'<small class="lc-fx">{esc(fix_with_background(f)[:260])}</small>'
+                      if (f.get("boxed") or f.get("measured")) and f.get("fix") else "") + "</li>" for f in fix[:3])
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
             f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
@@ -1111,6 +1111,12 @@ def start_phone(job, report):
 
 
 KEEP_STATIC = {"phone-viewport-meta", "phone-images"}  # read from the page code reliably; the rest comes from the render
+
+
+def fix_with_background(f):
+    """A contrast fix names the background it was measured on, so "make it lighter" never looks backwards."""
+    m = re.search(r" on (#[0-9a-fA-F]{3,8})", f.get("detail", "")) if f["rule"] == "phone-contrast" else None
+    return f'{f["fix"]} (on background {m.group(1)})' if m else f["fix"]
 
 
 def drop_phone_guesses(report):

@@ -287,6 +287,11 @@ def _browser_through_guard(module):
                 except Exception:  # page navigated while we looked
                     pass
                 page.evaluate("() => window.scrollTo(0, 0)")
+                try:  # fade-ins caught halfway read as faint text: jump every running animation to its end state
+                    page.evaluate("() => document.getAnimations().forEach(a => { try { a.finish(); } catch (e) {} })")
+                    page.wait_for_timeout(150)
+                except Exception:  # infinite animations can't finish: measure as they are
+                    pass
                 data = page.evaluate(module.MEASURE_JS, {"maxElements": max_elements, "taps": mobile})
                 data["viewport"] = width
                 results[width] = data
