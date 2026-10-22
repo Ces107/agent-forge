@@ -82,7 +82,7 @@ VARIANTS = {
                "button": "See my site on a phone", "example_img": True,
                "ex": "", "fix": ""},
     "dev": {"h1": "Built your site with Claude Code or Cursor? See what's still broken.", "source": "",
-            "sub": "Free scan in under 20 s: phone layout, what Google & ChatGPT can't read, keys in your code. "
+            "sub": "Free scan in under a minute: phone layout, what Google & ChatGPT can't read, keys in your code. "
                    "Then your AI fixes it.",
             "sev": "MEDIUM", "ex": "Your page is wider than a phone screen, and Google sees no description",
             "fix": "Fix: remove fixed widths wider than the screen and add a 120-160 character meta description."},
@@ -98,28 +98,28 @@ VARIANTS = {
                  "ex": "Your Supabase service_role key is in your website's code: anyone can read and change your database",
                  "fix": "Fix: use the anon key in the browser, keep service_role on the server only, and rotate it."},
     "devtools": {"h1": "Press F12 on your site. Is your API key in there?", "source": "",
-                 "sub": "Launch Check looks for you, usually in under 20 seconds. Free, no signup, no account.",
+                 "sub": "Launch Check looks for you, usually in under a minute. Free, no signup, no account.",
                  "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
                  "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
     "polish": {"h1": "Does your AI-built site look unfinished?", "source": "",
                "sub": "Free scan: what breaks on phones, what Google and ChatGPT can't read, and whether a key is "
-                      "showing. Usually under 20 seconds.",
+                      "showing. Usually under a minute.",
                "sev": "MEDIUM", "ex": "Your page is wider than a phone screen, and Google sees no description",
                "fix": "Fix: remove fixed widths wider than the screen and add a 120-160 character meta description."},
     "ready": {"h1": "Is your AI-built app ready to launch?", "source": "",
-              "sub": "Free scan in under 20 seconds: secret keys, phone layout, Google & ChatGPT, speed.",
+              "sub": "Free scan in under a minute: secret keys, phone layout, Google & ChatGPT, speed.",
               "ex": "Your OpenAI API key is visible in your website's code: anyone can run up your bill",
               "fix": "Fix: call OpenAI from a server function, keep the key in an environment variable, then rotate it."},
     "bill": {"h1": "A leaked Gemini key cost a 3-person startup $82,314 in 48 hours.",
              "source": "Reported by the developer, via The Register, March 2026",
-             "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
+             "sub": "Is your key showing in your site's code? Check in under a minute. Free, no signup.",
              "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
     "gemini": {"h1": "$6,000 in 40 minutes, from one key in a site's JavaScript.",
                "source": "Developer's report on Google's AI developer forum, April 2026",
-               "sub": "Is your key showing in your site's code? Check in under 20 seconds. Free, no signup.",
+               "sub": "Is your key showing in your site's code? Check in under a minute. Free, no signup.",
                "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
-SUB ="See the result usually in under 20 seconds. Free, no signup, no account."
+SUB ="See the result usually in under a minute. Free, no signup, no account."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
@@ -127,7 +127,7 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect wi
            'stroke-linejoin="round"/></svg>')
 
 DESC = ("Free check for apps built with Lovable, Bolt, v0, Replit or Cursor: secret keys in your site's code, "
-        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. Usually under 20 seconds, no signup, "
+        "Supabase/Firebase config, security headers, plus Google & ChatGPT basics. Usually under a minute, no signup, "
         "no account.")
 
 CSS = """
@@ -437,10 +437,10 @@ def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=T
 {src_html}
 {example}"""
     auto = ("var f=document.getElementById('f');if(f.url.value){document.body.classList.add('busy');"
-            "document.getElementById('b').textContent='Checking… usually 10–20 s';f.submit();}") if autostart else ""
+            "document.getElementById('b').textContent='Checking… usually under a minute';f.submit();}") if autostart else ""
     script = f"""<script nonce="{nonce}">
 document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
-document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually 10–20 s';}},0);}});
+document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually under a minute';}},0);}});
 {auto}</script>"""
     return shell(inner, nonce, v, script=script)
 
@@ -453,7 +453,7 @@ def progress_page(job_id, job, nonce):
             else f"Checking {host}…")
     inner = f"""<div class="prog" role="status"><b>{what}</b>
 <div class="bar" aria-hidden="true"><i></i></div>
-<p>{'Marking what is broken on the screen. Under a minute.' if rendering else 'Usually 10–20 s.'} This page updates by itself.</p></div>"""
+<p>{'Marking what is broken on the screen. Under a minute.' if rendering else 'Usually under a minute.'} This page updates by itself.</p></div>"""
     head = f'<noscript><meta http-equiv="refresh" content="3"></noscript><meta name="robots" content="noindex">'
     script = f"""<script nonce="{nonce}">(function(){{var u='/r/{job_id}/status';
 function poll(){{fetch(u,{{cache:'no-store'}}).then(function(r){{return r.json();}}).then(function(d){{
@@ -633,10 +633,15 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
 FACTS = {  # several wordings per problem, picked per site, so two cards never read the same
     "phone-tap-target": ("Your buttons are {v} px at the thin end. Even WCAG's minimum is 24.",
                          "Tap target: {v} px. That's a fingertip lottery.",
-                         "{v} px buttons. Thumbs are not styluses."),
+                         "{v} px buttons. Thumbs are not styluses.",
+                         "{v} px links: built for ants, used by thumbs.",
+                         "A {v} px tap target. Good luck, everyone."),
     "phone-contrast": ("Some text sits at {v}:1 contrast. Readable starts at 4.5.",
                        "{v}:1 contrast. Your text is whispering.",
-                       "Text at {v}:1 against its background. Squinting is not a feature."),
+                       "Text at {v}:1 against its background. Squinting is not a feature.",
+                       "Contrast {v}:1. Sunlight will erase it.",
+                       "{v}:1 contrast: readable by owls only.",
+                       "At {v}:1, your copy is a ghost story."),
     "heavy-js": ("{v} KB of JavaScript before anything works. The phone needs a coffee break.",
                  "{v} KB of scripts to show a landing page. Bold."),
     "phone-overflow": ("{v} parts of your page are wider than the phone, so it wobbles sideways.",),

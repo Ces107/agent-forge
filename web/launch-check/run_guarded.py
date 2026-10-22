@@ -160,9 +160,14 @@ def _browser_through_guard(module):
     def visible_spot(f):
         return key_of(f) != "images"
 
-    def petty(f):  # a 24-43 px tap target (logo, badge, theme toggle) passes WCAG AA: listed, never boxed for free
-        m = re.search(r"(\d+)x(\d+) px", f.get("detail", "")) if f["check"] == "tap-target" else None
-        return bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24
+    def petty(f):  # passes WCAG AA or misses by a hair: listed, never boxed or roasted for free
+        if f["check"] == "tap-target":  # 24-43 px (logo, badge, theme toggle)
+            m = re.search(r"(\d+)x(\d+) px", f.get("detail", ""))
+            return bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24
+        if f["check"] == "contrast":  # 4.45:1 against 4.5 is invisible to anyone: box only clear failures
+            m = re.search(r"contrast (\d+(?:\.\d+)?):1 \(needs (\d+(?:\.\d+)?)\)", f.get("detail", ""))
+            return bool(m) and float(m.group(1)) >= 0.9 * float(m.group(2))
+        return False
 
     def best_window(spots, width, doc_h):
         """The first screen if it shows at least 2 spots; otherwise the screen-tall stretch of the page that does."""

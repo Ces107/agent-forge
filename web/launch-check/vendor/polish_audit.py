@@ -466,7 +466,7 @@ for (const el of all) {
     for (const b of bgs) { const f = blend(fa, b); const v = ratio(f, b); if (v < worst) { worst = v; worstBg = b; } }
     const large = q.fs >= 24 || (q.fs >= 18.66 && q.fw >= 700); const need = large ? 3 : 4.5;
     // decorative glyphs (rating stars, arrows, bullets) are not text anyone reads; floating widgets aren't the site
-    const readable = /[A-Za-zÀ-ɏЀ-ӿ0-9]{2,}/.test(q.dt || '');
+    const readable = /[A-Za-zÀ-ɏЀ-ӿ]{2,}/.test(q.dt || '');  // words, not digits or glyphs
     if (worst < need - 0.005 && readable && !inFloating(q.el)) R.contrast.push({sel: sel(q.el), box: box(q.r), ratio: Math.round(worst * 100) / 100, need: need,
       fg: hex(blend(fa, worstBg)), fgRaw: hex(q.fg), bg: hex(worstBg), gradient: bgs.length > 1, size: q.fs, text: q.dt.slice(0, 40)});
   }
