@@ -574,11 +574,16 @@ class Round23(unittest.TestCase):
 
 class Roast(unittest.TestCase):
     def test_roast_lines_are_real_findings(self):
-        lines = app.roast_lines([("phone-tap-target", "x"), ("phone-tap-target", "x"), ("unknown-rule", "Odd thing"),
-                                 ("csp-missing", "y"), ("heavy-js", "z")])
+        lines = app.roast_lines([("phone-tap-target", "", "tap target 100x16 px"), ("phone-contrast", "x"),
+                                 ("phone-tap-target", "", "tap target 100x30 px"), ("unknown-rule", "Odd thing"),
+                                 ("csp-missing", "y"), ("search-sitemap-missing", "z"),
+                                 ("heavy-js", "1743 KB of JavaScript before anything works")])
         self.assertEqual(len(lines), 3)
-        self.assertIn("ants", lines[0])
-        self.assertNotIn("Bold choice", " ".join(lines))  # unknown rules never get an invented joke
+        self.assertIn("16", lines[0])                   # phone burns carry the site's own number
+        self.assertNotIn("hide-and-seek", " ".join(lines))  # a phone burn without a number is dropped
+        self.assertEqual(sum("sitemap" in x or "security" in x for x in lines), 1)  # one search/speed line at most
+        self.assertIn("1743", lines[2])
+        self.assertNotIn("Odd thing", " ".join(lines))  # unknown rules never get an invented joke
 
     def test_roast_landing_and_card(self):
         self.assertIn("Roast my site", app.page("n", "roast", url_value="a.com", autostart=True))
@@ -621,7 +626,8 @@ class RenderFirst(unittest.TestCase):
                            {"key": "overlap", "sev": "MED", "detail": "x", "fix": "y"}]}
         app.merge_render(rep, stats)
         items = app.other_items(rep)
-        self.assertEqual([f["rule"] for f in items[:3]], ["phone-tap-target", "phone-contrast", "phone-overlap"])
+        self.assertEqual([f["rule"] for f in items[:3]], ["phone-tap-target", "phone-contrast", "search-sitemap-missing"])
+        self.assertIn("phone-overlap", [f["rule"] for f in items[3:]])  # measured but not boxed: after the free 3
         self.assertNotIn("phone-fixed-width", [f["rule"] for f in items])  # the page-code guess is gone
         self.assertEqual(items[0]["severity"], "MEDIUM")  # boxed problems are always on the list
         burns = app.roast_lines(app.roast_items(rep, {"jpg": b"x", "stats": stats}))

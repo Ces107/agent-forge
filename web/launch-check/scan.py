@@ -536,8 +536,11 @@ def things_to_fix(findings):
     phone layout and Google/ChatGPT first, security headers last."""
     items = [f for f in findings if f["severity"] in ("HIGH", "MEDIUM") and not is_key_item(f)
              and f["rule"] not in STYLE_RULES]
-    return sorted(items, key=lambda f: (f["rule"] in DEMOTED, FIX_ORDER.index(f["area"]), f.get("boxed", 99),
-                                        lc.SEV_ORDER[f["severity"]]))  # boxed on the phone render: #1, #2
+    def group(f):  # boxed phone problems first (#1, #2), measured-but-off-screen phone problems after search
+        if f.get("boxed"):
+            return 0
+        return 1.5 if f.get("measured") else FIX_ORDER.index(f["area"])
+    return sorted(items, key=lambda f: (f["rule"] in DEMOTED, group(f), f.get("boxed", 99), lc.SEV_ORDER[f["severity"]]))
 
 
 DEMOTED = {"phone-images"}  # missing alt/size is real but invisible: never ahead of visible problems
@@ -681,6 +684,10 @@ def scan(raw_url, keys=True):
 
     for f in findings:
         f.update(title=plain(f["title"]), fix=plain(f["fix"]), detail=plain(f.get("detail", "")))
+    if any(f["rule"] == "search-jsonld-required" for f in findings):  # some JSON-LD exists: no contradiction
+        for f in findings:
+            if f["rule"] == "search-schema-home-org":
+                f["title"] = "Your structured data doesn't say who you are (no Organization or WebSite entry)"
     notes = [plain(n) for n in notes]
     findings.sort(key=lambda f: (lc.SEV_ORDER[f["severity"]], [k for k, _ in lc.AREAS].index(f["area"])))
     for area in ("phone", "search", "speed"):  # a category with a HIGH finding is never "Good"

@@ -612,7 +612,7 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
     "hsts-missing": "Browsers aren't told to always use HTTPS. Trust issues, but backwards.",
     "clickjacking": "Any site can frame yours invisibly. Very trusting of you.",
     "search-render-blocking-js": "Scripts in the page head make phones stare at a blank screen first.",
-    "search-html-heavy": "Your HTML is so heavy the phone needs a minute to carry it.",
+    "search-html-heavy": "Your HTML is heavy enough to slow down the first paint on a phone.",
     "search-llms-invalid": "Your llms.txt exists, but AI assistants can't make sense of it.",
     "search-llms-soft404": "Ask for your llms.txt and you get a page that pretends to be one.",
     "search-sitemap-invalid": "You have a sitemap. Google just can't read it.",
@@ -679,7 +679,9 @@ def roast_lines(items, host=""):
             v = fact_value(rule, title, detail)
             if v and int(v) >= 24:
                 continue
-        line = fact_line(rule, title, detail, host) or ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
+        line = fact_line(rule, title, detail, host)
+        if not line and not rule.startswith("phone-") and not any(not r.startswith("phone-") for r in used):
+            line = ROAST.get(rule, "")  # one checkable search/speed line at most; phone burns need their numbers
         if not line or rule in used or line in burns:
             continue
         used.add(rule)
@@ -923,7 +925,7 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
-                   + (f'<small class="lc-fx">{esc(f["fix"][:240])}</small>' if f.get("boxed") and f.get("fix")
+                   + (f'<small class="lc-fx">{esc(f["fix"][:240])}</small>' if (f.get("boxed") or f.get("measured")) and f.get("fix")
                       else "") + "</li>" for f in fix[:3])
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
@@ -1056,7 +1058,10 @@ def start_job(url, v, src="", job_id=None, keep=False, keys=True):
                 job["phone"] = phone_state_from(out)
                 if job["phone"]["state"] == "done":
                     merge_render(report, job["phone"]["stats"])
+                else:
+                    drop_phone_guesses(report)  # no measurement, no phone claims (the retry fills them in)
             else:
+                drop_phone_guesses(report)
                 start_phone(job, report)  # before "done", so the first result page already shows "rendering"
             job.update(state="done", report=report)
             count("scans_done", job["v"], job["src"])
@@ -1088,17 +1093,28 @@ def start_phone(job, report):
     job["phone"] = {"state": "rendering", "t": time.time()}
 
     def work():
+        measured = report.get("phone_measured")
         try:
-            out = scanner.render_phone(report["final_url"], phone_marks(report), listn=len(other_items(report)))
+            if measured:
+                out = scanner.render_phone(report["final_url"], phone_marks(report), listn=len(other_items(report)))
+            else:  # the result has no phone measurement yet: this render becomes it
+                out = scanner.render_phone(report["final_url"], {}, budget=RENDER_WAIT, listn=0)
         except Exception:  # never break the result page
             out = None
-        job["phone"] = phone_state_from(out)
+        ph = phone_state_from(out)
+        if ph["state"] == "done" and not measured:
+            merge_render(report, ph["stats"])
+        job["phone"] = ph
 
     threading.Thread(target=work, daemon=True).start()
     return True
 
 
 KEEP_STATIC = {"phone-viewport-meta", "phone-images"}  # read from the page code reliably; the rest comes from the render
+
+
+def drop_phone_guesses(report):
+    report["findings"] = [f for f in report["findings"] if f["area"] != "phone" or f["rule"] in KEEP_STATIC]
 
 
 def merge_render(report, stats):
@@ -1121,6 +1137,7 @@ def merge_render(report, stats):
                                k.get("fix") or "", detail=k.get("detail", ""))
         if k["key"] in boxed:
             f["boxed"] = boxed[k["key"]]
+        f["measured"] = True
         report["findings"].append(f)
         have.add(rule)
     report["phone_measured"] = True
@@ -1228,6 +1245,25 @@ def roast_png(host, score, burns, phone_jpg=None):
             y += 33
         y += 12
     d.text((x, 560), f"Get roasted: {urlparse.urlsplit(SITE).hostname}/roast", font=_font(22), fill=(148, 163, 184))
+    buf = _io.BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+def roast_hold_png(host):
+    """The share image while there is no phone render: no score, no burns, nothing that can't be checked."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return None
+    import io as _io
+    img = Image.new("RGB", (1200, 630), (15, 23, 42))
+    d = ImageDraw.Draw(img)
+    d.text((80, 90), f"ROAST ON HOLD · {host[:34]}", font=_font(40), fill=(251, 146, 60))
+    d.text((80, 200), "We only roast what we can show", font=_font(52), fill=(241, 245, 249))
+    d.text((80, 270), "boxed on a real phone screenshot.", font=_font(52), fill=(241, 245, 249))
+    d.text((80, 380), "This render didn't finish. Try it again.", font=_font(34), fill=(148, 163, 184))
+    d.text((80, 560), f"{urlparse.urlsplit(SITE).hostname}/roast", font=_font(26), fill=(148, 163, 184))
     buf = _io.BytesIO()
     img.save(buf, "PNG", optimize=True)
     return buf.getvalue()
@@ -1462,7 +1498,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not jpg and job and job.get("report") and ph.get("state", "none") == "none" and not job.get("retried"):
                     job["retried"] = True  # one retry: a card without its phone picture renders it for the next fetch
                     start_phone(job, job["report"])
-                png = roast_png(host, now, roast_lines(items, host), jpg)
+                # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
+                png = roast_png(host, now, roast_lines(items, host), jpg) if jpg else roast_hold_png(host)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")

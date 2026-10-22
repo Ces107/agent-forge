@@ -391,8 +391,10 @@ for (const el of all) {
     const inline = el.tagName === 'A' && c.display === 'inline' && parent && directText(parent).length > 20;
     if ((el.type === 'checkbox' || el.type === 'radio') && el.labels && el.labels.length) {
       const lr = el.labels[0].getBoundingClientRect(); tr = {width: Math.max(lr.width, r.width), height: Math.max(lr.height, r.height)}; }
+    // an image-only link of 24 px or more (logo, award badge, social icon) is a picture, not a cramped button
+    const imageOnly = !(el.innerText || '').trim() && !!el.querySelector('img,svg,picture') && Math.max(tr.width, tr.height) >= 24;
     if (!inline && !el.closest('[aria-hidden=true]') && (tr.width < 44 || tr.height < 44) && !srOnly(el)
-        && shown(el, r))
+        && shown(el, r) && !imageOnly)
       R.taps.push({sel: sel(el), box: box(r), w: Math.round(tr.width), h: Math.round(tr.height)});
   }
   // text
