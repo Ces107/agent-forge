@@ -213,7 +213,7 @@ def _browser_through_guard(module):
                 y0 = 0
             (shots_dir / ("marks-%d.json" % width)).write_text(json.dumps({
                 "mode": mode, "legend": legend, "boxed": boxed, "total": len(spots), "y0": y0,
-                "kinds": list(kinds.values()),
+                "kinds": list(kinds.values()), "css": state.get("css", [])[:8],
                 "style": [f.get("detail", "") for f in findings if f["check"] in STYLE_CHECKS][:20]}), encoding="utf-8")
             if web:
                 (shots_dir / "marks.json").write_text((shots_dir / ("marks-%d.json" % width)).read_text(encoding="utf-8"),
@@ -248,6 +248,10 @@ def _browser_through_guard(module):
                 ctx.route("**/*", route)
                 ctx.add_init_script(module.INIT_JS)
                 page = ctx.new_page()
+                page.on("response", lambda resp: resp.request.resource_type == "stylesheet" and state.setdefault(
+                    "css", []).append(f"{resp.status} {resp.headers.get('content-type', '')[:24]}"))
+                page.on("requestfailed", lambda req: req.resource_type == "stylesheet" and state.setdefault(
+                    "css", []).append(f"failed {req.failure or ''}"[:60]))
                 page.goto(url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
                 try:
                     page.wait_for_load_state("load", timeout=1500)

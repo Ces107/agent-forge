@@ -316,6 +316,8 @@ def render_phone(url, marks, budget=ASYNC_BUDGET, listn=0):
             if os.path.isfile(stats_path):
                 with open(stats_path, encoding="utf-8") as fh:
                     stats = _json.load(fh)
+            if stats.get("mode") == "unstyled":
+                sys.stderr.write(f"render unstyled css={stats.get('css')}\n")
             with open(path, "rb") as fh:
                 return fh.read(), stats
         return None
