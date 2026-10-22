@@ -186,10 +186,26 @@ def _browser_through_guard(module):
     def visible_spot(f):
         return key_of(f) != "images"
 
+    tap_boxes = {}  # width -> every small tap target's box, for WCAG 2.2's spacing exception
+
+    def spaced(f):  # WCAG 2.5.8: a target under 24 px passes when a 24 px circle on it touches no other target
+        for width, bxs in (f.get("boxes") or {}).items():
+            for bx in bxs:
+                if not bx or len(bx) != 4:
+                    continue
+                cx, cy = bx[0] + bx[2] / 2, bx[1] + bx[3] / 2
+                for o in tap_boxes.get(width, []):
+                    if o is bx or o == bx:
+                        continue
+                    nx, ny = max(o[0], min(cx, o[0] + o[2])), max(o[1], min(cy, o[1] + o[3]))
+                    if (nx - cx) ** 2 + (ny - cy) ** 2 < 12 ** 2:
+                        return False
+        return bool(f.get("boxes"))
+
     def petty(f):  # passes WCAG AA or misses by a hair: listed, never boxed or roasted for free
-        if f["check"] == "tap-target":  # 24-43 px (logo, badge, theme toggle)
+        if f["check"] == "tap-target":  # 24-43 px (logo, badge, theme toggle), or small but well spaced
             m = re.search(r"(\d+)x(\d+) px", f.get("detail", ""))
-            return bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24
+            return (bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24) or spaced(f)
         if f["check"] == "overlap":  # a small touch (wrapping next to an emoji) is not text on top of text
             m = re.search(r"\((\d+) px2\)", f.get("detail", ""))
             return bool(m) and int(m.group(1)) < 3000
@@ -219,6 +235,10 @@ def _browser_through_guard(module):
         out = {}
         shots_dir.mkdir(parents=True, exist_ok=True)
         spots = [f for f in findings if f["check"] not in STYLE_CHECKS]
+        for f in findings:  # all small targets, so spacing can be judged against the neighbours
+            if f["check"] == "tap-target":
+                for width, bxs in (f.get("boxes") or {}).items():
+                    tap_boxes.setdefault(width, []).extend(b for b in bxs if b and len(b) == 4)
         if web:  # near-1:1 "contrast" is an icon or a decorative element, not text anyone reads: never shown
             # text over a photo/gradient we could not sample ("page background assumed") is not provably unreadable
             spots = [f for f in spots if not (f["check"] == "contrast" and (

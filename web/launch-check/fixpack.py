@@ -195,13 +195,12 @@ def pack_files(report: dict) -> dict:
     return files
 
 
-NEEDS = {  # rule prefixes that show a file is missing or broken on the site
-    "sitemap.xml": ("search-sitemap-",),
-    "robots.txt": ("search-robots-", "search-ai-search-bot-blocked"),
-    "llms.txt": ("search-llms-",),
-    "json-ld.html": ("search-schema-", "search-jsonld-"),
-    "meta-tags.html": ("desc-missing", "title-missing", "title-default", "og-image-missing", "search-og-",
-                       "search-desc-", "search-title-"),
+NEEDS = {  # rules that prove a file is missing or broken (a site serving a valid file is never sold one)
+    "sitemap.xml": ("search-sitemap-missing", "search-sitemap-invalid"),
+    "robots.txt": ("search-robots-blocks-all", "search-robots-soft404", "search-ai-search-bot-blocked"),
+    "llms.txt": ("search-llms-missing", "search-llms-invalid", "search-llms-soft404"),
+    "json-ld.html": ("search-schema-home-org", "search-jsonld-required", "search-jsonld-format", "search-jsonld-mismatch"),
+    "meta-tags.html": ("desc-missing", "title-missing", "title-default", "og-image-missing", "search-og-missing"),
 }
 
 
