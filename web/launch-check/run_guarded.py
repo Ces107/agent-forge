@@ -77,6 +77,9 @@ BOTCHECK_JS = r"""() => {
   return !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,.cf-turnstile,iframe[src*="challenges.cloudflare.com"],iframe[src*="captcha"],#px-captcha,.g-recaptcha,.h-captcha');
 }"""
 
+STYLED_JS = r"""() => [...document.querySelectorAll('link[rel~="stylesheet"]')]
+  .filter(l => !l.disabled && (!l.media || l.media === 'all' || matchMedia(l.media).matches)).every(l => !!l.sheet)"""
+
 
 def _browser_through_guard(module):
     """Renders through browser_proxy (same SSRF rules as the fetcher). Cookie banners are dismissed before the
@@ -152,6 +155,8 @@ def _browser_through_guard(module):
             boxed = 0
             if state["botcheck"]:
                 mode = "botcheck"
+            elif web and state.get("unstyled"):
+                mode = "unstyled"  # the CSS never arrived: a measurement of this would be fiction
             elif web:
                 doc_h = page.evaluate("() => document.documentElement.scrollHeight")
                 top = [f for f in spots if ranks.get(key_of(f), 99) <= 3 and visible_spot(f)]
@@ -197,7 +202,7 @@ def _browser_through_guard(module):
                     color = {"HIGH": "#dc2626", "MED": "#ea580c", "LOW": "#ca8a04"}[f["severity"]]
                     for bx in boxes_in_view(f, width, cap=4):
                         marks.append({"box": bx, "label": "#%d" % f["rank"], "color": color})
-            if not web or state["botcheck"]:
+            if not web or state["botcheck"] or state.get("unstyled"):
                 y0 = 0
             (shots_dir / ("marks-%d.json" % width)).write_text(json.dumps({
                 "mode": mode, "legend": legend, "boxed": boxed, "total": len(spots), "y0": y0,
@@ -241,6 +246,11 @@ def _browser_through_guard(module):
                     page.wait_for_load_state("load", timeout=1500)
                 except Exception:  # slow images: measure what is there
                     pass
+                try:  # never measure an unstyled page: wait for the stylesheets (slow server CPU), else give up
+                    page.wait_for_function(STYLED_JS, timeout=8000)
+                except Exception:
+                    if not page.evaluate(STYLED_JS):
+                        state["unstyled"] = True
                 try:
                     if page.evaluate(BOTCHECK_JS):
                         state["botcheck"] = True

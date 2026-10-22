@@ -1110,6 +1110,8 @@ def phone_state_from(out):
     if not out:
         return {"state": "none"}
     jpg, stats = out
+    if (stats or {}).get("mode") == "unstyled":  # the page's CSS never loaded: show nothing rather than fiction
+        return {"state": "none"}
     if (stats or {}).get("mode") == "botcheck":
         return {"state": "botcheck", "stats": stats}
     return {"state": "done", "jpg": jpg, "stats": stats}
