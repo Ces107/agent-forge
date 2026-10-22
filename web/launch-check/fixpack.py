@@ -466,6 +466,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
     proof = ""
     if n > 3:
         order = sorted(range(3, n), key=lambda i: (fix[i]["area"] != "phone" or fix[i]["rule"] == "phone-images",
+                                                    fix[i]["rule"] != "phone-contrast",  # measured colours: site-specific
                                                     fix[i]["area"] == "security", i))
         k = order[0]  # the most visible fix is the best proof
         f4 = fix[k]

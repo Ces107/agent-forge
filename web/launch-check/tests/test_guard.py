@@ -581,10 +581,10 @@ class Roast(unittest.TestCase):
                                  ("csp-missing", "y"), ("search-sitemap-missing", "z"),
                                  ("phone-clipped", "", 'text cut off by div.x (11 px hidden): "Pots et popote"'),
                                  ("heavy-js", "1743 KB of JavaScript before anything works")])
-        self.assertEqual(len(lines), 2)
-        self.assertIn("16", lines[0])                   # phone burns carry the site's own number
-        self.assertIn('"Pots et popote"', lines[1])     # or the site's own words
-        self.assertNotIn("hide-and-seek", " ".join(lines))  # a phone burn without a number is dropped
+        self.assertEqual(len(lines), 3)                 # every boxed phone problem gets a burn
+        self.assertIn("16", lines[0])                   # its own number when the finding has one
+        self.assertIn("hide-and-seek", lines[1])        # a stock line when it doesn't (it is boxed, so checkable)
+        self.assertIn('"Pots et popote"', lines[2])     # or the site's own words
         self.assertFalse(any("sitemap" in x or "security" in x or "1743" in x for x in lines))  # only what's boxed
         self.assertNotIn("Odd thing", " ".join(lines))  # unknown rules never get an invented joke
 

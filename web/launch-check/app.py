@@ -689,7 +689,7 @@ def roast_lines(items, host=""):
                 continue
         if not rule.startswith("phone-"):
             continue  # every burn is something you can see boxed on the phone picture
-        line = fact_line(rule, title, detail, host)
+        line = fact_line(rule, title, detail, host) or ROAST.get(rule, "")  # every boxed problem gets its burn
         if not line or rule in used or line in burns:
             continue
         used.add(rule)
