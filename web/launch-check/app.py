@@ -630,38 +630,56 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
 }
 
 
-def fact_line(rule, title, detail):
-    """A burn built from this site's own numbers, when the finding carries them."""
+FACTS = {  # several wordings per problem, picked per site, so two cards never read the same
+    "phone-tap-target": ("Your buttons are {v} px at the thin end. Even WCAG's minimum is 24.",
+                         "Tap target: {v} px. That's a fingertip lottery.",
+                         "{v} px buttons. Thumbs are not styluses."),
+    "phone-contrast": ("Some text sits at {v}:1 contrast. Readable starts at 4.5.",
+                       "{v}:1 contrast. Your text is whispering.",
+                       "Text at {v}:1 against its background. Squinting is not a feature."),
+    "heavy-js": ("{v} KB of JavaScript before anything works. The phone needs a coffee break.",
+                 "{v} KB of scripts to show a landing page. Bold."),
+    "phone-overflow": ("{v} parts of your page are wider than the phone, so it wobbles sideways.",),
+    "phone-fixed-width": ("{v} parts of your page are wider than the phone, so it wobbles sideways.",),
+}
+
+
+def fact_value(rule, title, detail):
     t = f"{title} {detail}"
     if rule == "phone-tap-target":
         m = re.search(r"(\d+)x(\d+) px", t)
-        if m:
-            return f"Your buttons are {min(int(m.group(1)), int(m.group(2)))} px across at the thin end. Thumbs need 44."
+        return str(min(int(m.group(1)), int(m.group(2)))) if m else ""
     if rule == "phone-contrast":
         m = re.search(r"(\d+(?:\.\d+)?):1", t)
-        if m:
-            return f"Some text sits at {m.group(1)}:1 contrast. Readable starts at 4.5. Squinting is not a feature."
+        return m.group(1) if m else ""
     if rule == "heavy-js":
         m = re.search(r"(\d[\d,]*) KB", t)
-        if m:
-            return f"{m.group(1)} KB of JavaScript before anything works. The phone needs a coffee break."
+        return m.group(1) if m else ""
     if rule in ("phone-fixed-width", "phone-overflow"):
         m = re.search(r"\((\d+) places\)", t)
-        if m:
-            return f"{m.group(1)} parts of your page are wider than the phone, so it wobbles sideways."
+        return m.group(1) if m else ""
     return ""
 
 
-def roast_lines(items):
-    """items = [(rule, title[, detail])] in list order -> up to 3 burns, each one a real finding (own numbers first)."""
+def fact_line(rule, title, detail, host=""):
+    """A burn built from this site's own numbers, when the finding carries them."""
+    v = fact_value(rule, title, detail)
+    if not v or rule not in FACTS:
+        return ""
+    forms = FACTS[rule]
+    return forms[sum(map(ord, host + rule)) % len(forms)].format(v=v)
+
+
+def roast_lines(items, host=""):
+    """items = [(rule, title[, detail])] in list order -> up to 3 burns, each one a real, checkable finding."""
     burns, used = [], set()
     for item in items:
         rule, title, detail = (tuple(item) + ("",))[:3]
-        if rule == "phone-tap-target":  # a near-miss (30-43 px) is real but too petty to roast
-            m = re.search(r"(\d+)x(\d+) px", f"{title} {detail}")
-            if m and min(int(m.group(1)), int(m.group(2))) >= 30:
+        if rule == "phone-tap-target":  # only what fails even WCAG AA (24 px) is roasted
+            v = fact_value(rule, title, detail)
+            if v and int(v) >= 24:
                 continue
-        line = fact_line(rule, title, detail) or ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
+        line = fact_line(rule, title, detail, host) or ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
         if not line or rule in used or line in burns:
             continue
         used.add(rule)
@@ -672,31 +690,39 @@ def roast_lines(items):
 
 
 VERDICTS = {90: ("Annoyingly good. We tried.", "Hard to roast. We found a few crumbs.", "Clean. Mostly. Here's what's left."),
-            75: ("Looks fine on a laptop. Your phone visitors disagree.", "Close, but a phone tells a different story.",
-                 "Good bones. The phone version needs an intervention."),
-            55: ("Ship it? After these.", "Your phone visitors would notice these first.",
+            80: ("Nearly there. A phone still finds a few things.", "Solid. These are the last rough edges.",
+                 "Almost launch-ready on a phone."),
+            65: ("Looks fine on a laptop. Your phone visitors disagree.", "Close, but a phone tells a different story.",
+                 "Good bones. The phone version needs a pass."),
+            50: ("Ship it? After these.", "Your phone visitors would notice these first.",
                  "Fixable in an afternoon. Ignored, it costs signups."),
             0: ("We need to talk before you launch.", "Your phone visitors are having a rough time.",
                 "This needs a pass before anyone sees it.")}
 
 
 def roast_verdict(score, host=""):
-    band = next(b for b in (90, 75, 55, 0) if score >= b)
+    band = next(b for b in (90, 80, 65, 50, 0) if score >= b)
     return VERDICTS[band][(sum(map(ord, host)) + score) % 3]
 
 
 def roast_items(report, phone=None):
     """Burn order shared by the page and the card: the boxed problems first, then the problem list."""
-    items = [(f["rule"], scanner.lc.short(f["title"], 90), f.get("detail", "")) for f in other_items(report)]
-    if phone and phone.get("jpg"):
-        items = [("phone-" + x.get("key", ""), "", x.get("detail", ""))
-                 for x in (phone.get("stats") or {}).get("legend") or []] + items
+    legend = ((phone or {}).get("stats") or {}).get("legend") or [] if (phone or {}).get("jpg") else []
+    boxed = {"phone-" + x.get("key", "") for x in legend}
+    items = [("phone-" + x.get("key", ""), "", x.get("detail", "")) for x in legend]
+    # a phone burn needs a box you can see on the card; search, speed and security burns are checkable as they are
+    items += [(f["rule"], scanner.lc.short(f["title"], 90), f.get("detail", "")) for f in other_items(report)
+              if f["area"] != "phone" or f["rule"] in boxed]
     return items
 
 
 def roast_card(report, job_id, phone=None, n_all=None):
+    if not (phone or {}).get("jpg"):  # no picture, no roast: a burn must be checkable against the boxed screenshot
+        return ('<section class="lc-roast"><div class="rk">ROAST ON HOLD</div><p class="rv">The phone render didn\'t '
+                'finish, so there is no roast this time: we only roast what we can show you boxed.</p>'
+                '<a class="rb" href="#lc-ps">Try the render again below</a></section>')
     fix = other_items(report)
-    burns = roast_lines(roast_items(report, phone))
+    burns = roast_lines(roast_items(report, phone), urlparse.urlsplit(report["final_url"]).hostname or "")
     n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
@@ -897,7 +923,7 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
-                   + (f'<small class="lc-fx">{esc(scanner.lc.short(f["fix"], 220))}</small>' if f.get("boxed") and f.get("fix")
+                   + (f'<small class="lc-fx">{esc(f["fix"][:240])}</small>' if f.get("boxed") and f.get("fix")
                       else "") + "</li>" for f in fix[:3])
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
@@ -942,7 +968,7 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
                       'type="image/svg+xml">' + share_meta + '</head><body>' + top, 1)
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
-                      "A good score is not a security audit. Free scan: phone findings come from the page code (1 screen "
+                      "A good score is not a security audit. Phone findings are measured in a real phone browser (375 px, 1 screen "
                       "size); the phone screenshot is a real browser render. This page link works for 14 days: opening it later "
                       "re-checks your site, so it always shows today's result."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
@@ -1436,7 +1462,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not jpg and job and job.get("report") and ph.get("state", "none") == "none" and not job.get("retried"):
                     job["retried"] = True  # one retry: a card without its phone picture renders it for the next fetch
                     start_phone(job, job["report"])
-                png = roast_png(host, now, roast_lines(items), jpg)
+                png = roast_png(host, now, roast_lines(items, host), jpg)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")

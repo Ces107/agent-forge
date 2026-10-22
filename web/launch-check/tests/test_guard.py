@@ -583,9 +583,11 @@ class Roast(unittest.TestCase):
     def test_roast_landing_and_card(self):
         self.assertIn("Roast my site", app.page("n", "roast", url_value="a.com", autostart=True))
         rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
-        card = app.roast_card(rep, "J" * 24)
+        self.assertIn("ROAST ON HOLD", app.roast_card(rep, "J" * 24))  # no picture, no roast
+        card = app.roast_card(rep, "J" * 24, {"jpg": b"x", "stats": {"legend": [{"n": 1, "key": "tap-target",
+                                                                              "detail": "tap target 100x16 px"}]}})
         self.assertIn("ROASTED", card)
-        self.assertIn("ants can tap them", card)
+        self.assertIn("16 px", card)
         png = app.roast_png("a.com", 64, ["Burn one.", "Burn two."])
         self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
 
@@ -622,7 +624,7 @@ class RenderFirst(unittest.TestCase):
         self.assertEqual([f["rule"] for f in items[:3]], ["phone-tap-target", "phone-contrast", "phone-overlap"])
         self.assertNotIn("phone-fixed-width", [f["rule"] for f in items])  # the page-code guess is gone
         self.assertEqual(items[0]["severity"], "MEDIUM")  # boxed problems are always on the list
-        burns = app.roast_lines(app.roast_items(rep))
+        burns = app.roast_lines(app.roast_items(rep, {"jpg": b"x", "stats": stats}))
         self.assertEqual(len(burns), len(set(burns)))
         self.assertIn("21 px", burns[0])
 

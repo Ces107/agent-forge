@@ -126,6 +126,10 @@ def _browser_through_guard(module):
     def visible_spot(f):
         return key_of(f) != "images"
 
+    def petty(f):  # a 24-43 px tap target (logo, badge, theme toggle) passes WCAG AA: listed, never boxed for free
+        m = re.search(r"(\d+)x(\d+) px", f.get("detail", "")) if f["check"] == "tap-target" else None
+        return bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24
+
     def best_window(spots, width, doc_h):
         """The first screen if it shows at least 2 spots; otherwise the screen-tall stretch of the page that does."""
         def count(y0):  # distinct kinds of visible problems in this stretch of the page
@@ -148,7 +152,9 @@ def _browser_through_guard(module):
         shots_dir.mkdir(parents=True, exist_ok=True)
         spots = [f for f in findings if f["check"] not in STYLE_CHECKS]
         if web:  # near-1:1 "contrast" is an icon or a decorative element, not text anyone reads: never shown
-            spots = [f for f in spots if not (f["check"] == "contrast" and re.search(r"\b1\.[0-2]\d?:1", f.get("detail", "")))]
+            # text over a photo/gradient we could not sample ("page background assumed") is not provably unreadable
+            spots = [f for f in spots if not (f["check"] == "contrast" and (
+                re.search(r"\b1\.[0-2]\d?:1", f.get("detail", "")) or "page background assumed" in f.get("detail", "")))]
         if not web:  # paid renders: number the boxed problems 1..N with no gaps (style notes are never boxed)
             for i, f in enumerate(spots):
                 f["rank"] = i + 1
@@ -174,20 +180,21 @@ def _browser_through_guard(module):
                         break
                     if ranks[key] > 3 and key == "images":  # invisible (missing alt/size): never a filler box
                         continue
-                    fs = [f for f in spots if key_of(f) == key]
+                    fs = [f for f in spots if key_of(f) == key and not petty(f)]
                     got = [bx for f in fs for bx in boxes_in_view(f, width, 3, y0)][:3]
                     if got:
                         n = ranks[key]
+                        first = next(f for f in fs if boxes_in_view(f, width, 3, y0))  # its numbers match the box
                         marks += [{"box": bx, "label": "#%d" % n, "color": "#dc2626"} for bx in got]
-                        legend.append({"n": n, "key": key, "detail": fs[0].get("detail", ""),
-                                       "fix": fs[0].get("fix", ""), "sev": fs[0]["severity"]})
+                        legend.append({"n": n, "key": key, "detail": first.get("detail", ""),
+                                       "fix": first.get("fix", ""), "sev": first["severity"]})
                         boxed += sum(1 for f in fs if boxes_in_view(f, width, 3, y0))
                 extra = listn  # problems only the real render sees: they join the list as #N+1, #N+2 (paid pack)
                 for f in spots:
                     if len(legend) >= 2:
                         break
                     key = key_of(f)
-                    if key in ranks or not visible_spot(f) or any(x["key"] == key for x in legend):
+                    if key in ranks or not visible_spot(f) or petty(f) or any(x["key"] == key for x in legend):
                         continue
                     got = boxes_in_view(f, width, 3, y0)
                     if got:
