@@ -839,8 +839,9 @@ def phone_slot(report, job_id, state, stats=None):
         return (f'<section class="lc-phone" id="lc-ps" data-u="/r/{job_id}/phone" data-done="0" data-failed="1">'
                 f'<h2>Your site on a phone</h2></section>')
     if state == "botcheck":
-        return ('<section class="lc-phone lc-phs"><b>Your site showed a bot check to our browser, so we couldn\'t render '
-                'it.</b> The scan above still read your page code.</section>')
+        return ('<section class="lc-phone lc-phs"><b>Your site didn\'t let our browser in this time</b> (some hosts block '
+                'cloud servers or show them a bot check), so there is no phone render. The scan above still read your '
+                'page code.</section>')
     counts = phone_counts(stats)
     n = len(other_items(report))
     legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}'
@@ -929,7 +930,7 @@ var note=document.getElementById('lc-note');if(d.mode==='clean')note.textContent
 if(d.mode==='unboxed')note.textContent='None of the listed problems shows on the first screen; the Fix Pack renders the whole page.';
 if(d.mode==='marks'&&d.lower)note.textContent='Your first screen had no problems; this is the part of the page further down where they start.';
 };i.onerror=function(){fail();};i.src=u+'.jpg';}
-else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site showed a bot check to our browser, so we couldn\u2019t render it.</b> The scan still read your page code.';}
+else if(d.state==='botcheck'){s.className='lc-phone lc-phs';s.innerHTML='<b>Your site didn\u2019t let our browser in this time</b> (some hosts block cloud servers or show them a bot check), so there is no phone render. The scan still read your page code.';}
 else if(d.state==='rendering'&&n<75){setTimeout(poll,2000);}else{fail();}}).catch(function(){fail();});}
 setTimeout(poll,3000);})();"""
 
@@ -972,7 +973,9 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
         share_meta = (f'<meta property="og:title" content="{esc(host)} got roasted: {report["score"]}/100">'
                       f'<meta property="og:image" content="{esc(img)}"><meta name="twitter:card" '
                       f'content="summary_large_image"><meta name="twitter:image" content="{esc(img)}">')
-    first = roast + then + secret_banner(report) + (slot or phone_section(report)) + free + preview
+    keys_off = (report["facts"].get("assets") or {}).get("keys_off")  # a link made for someone else's site
+    first = (roast + then + ("" if keys_off else secret_banner(report)) + (slot or phone_section(report)) + free + preview
+             + (secret_banner(report) if keys_off else ""))
     script = f"""<script nonce="{nonce}">(function(){{var b=document.getElementById('lc-copy');if(!b)return;
 b.addEventListener('click',function(){{var t=document.getElementById('p').innerText;
 function ok(){{b.textContent='Copied — paste it to your AI';}}

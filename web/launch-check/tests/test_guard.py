@@ -700,7 +700,7 @@ class PhoneFunnel(unittest.TestCase):
         clean = app.phone_slot(rep, "J" * 24, "done", {"mode": "clean", "legend": [], "boxed": 0, "total": 0})
         self.assertIn("No phone layout problems found", clean)
         bot = app.phone_slot(rep, "J" * 24, "botcheck", {"mode": "botcheck"})
-        self.assertIn("showed a bot check to our browser", bot)
+        self.assertIn("didn't let our browser in", bot)
         self.assertEqual(app.phone_slot(rep, "J" * 24, "none"), "")
 
     def test_locked_preview_one_count_missing_tags_first_and_a_sample_fix(self):
