@@ -46,7 +46,19 @@ PAY_PROVIDER = os.environ.get("PAY_PROVIDER", "").strip().lower()
 POLAR_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
 POLAR_PRODUCT = os.environ.get("POLAR_PRODUCT_ID", "")
 POLAR_PRODUCT_DFY = os.environ.get("POLAR_PRODUCT_ID_DFY", "")  # optional $39 "the founder fixes it" tier
-DFY_PRICE, DFY_SLOTS = "$39", int(os.environ.get("LC_DFY_SLOTS", "5"))
+DFY_PRICE, DFY_SLOTS = os.environ.get("LC_FIX_PRICE", "$19"), int(os.environ.get("LC_DFY_SLOTS", "5"))
+FIX_URL = os.environ.get("LC_FIX_URL", "")  # the founder's own payment link (Stripe): Polar doesn't allow human services
+
+
+def fix_link(scan_id: str) -> str:
+    """The founder-fix button: a plain payment link carrying the scan id, paid only after the fix is done."""
+    if not FIX_URL:
+        return ""
+    sep = "&" if "?" in FIX_URL else "?"
+    return (f'<a class="fp-dfy" href="{esc(FIX_URL)}{sep}client_reference_id={esc(scan_id)}" rel="noopener">'
+            f'The founder fixes these for you — {DFY_PRICE}, paid only after it is done</a>'
+            f'<div class="fp-terms">{DFY_SLOTS} slots · within 24 h by email or a pull request · you pay after a clean '
+            f're-scan</div>')
 POLAR_SERVER = os.environ.get("POLAR_SERVER", "sandbox").strip().lower()
 POLAR_WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "")
 PAY_SECRET = os.environ.get("PAY_SECRET") or secrets.token_hex(32)  # tokens die with the process if unset
@@ -491,7 +503,9 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                   '<div class="fp-terms">One-time · instant download · free re-scan for 7 days with a before/after card '
                   'to post · refund if it doesn\'t '
                   'help</div>')
-        if dfy_on() and report.get("score", 100) < 85:  # the founder fix is offered where it is worth $39
+        if FIX_URL:
+            button += f'<div style="margin-top:12px">{fix_link(job_id)}</div>'
+        elif dfy_on() and report.get("score", 100) < 85:  # the founder fix is offered where it is worth $39
             button += (f'<form method="post" action="/buy/{esc(job_id)}?tier=dfy"><button class="fp-dfy" type="submit">'
                        f'Or the founder fixes it for you — {DFY_PRICE}</button></form><div class="fp-terms">Within 24 h, '
                        f'by email or a pull request · {DFY_SLOTS} launch slots · paid only after it\'s done</div>')

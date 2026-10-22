@@ -741,7 +741,9 @@ def roast_card(report, job_id, phone=None, n_all=None):
         if boxes and burns:
             return (f'<section class="lc-roast"><div class="rk">ONE THING TO FIX ON A PHONE · {esc(host)}</div>'
                     f'<div class="rs">{report["score"]}<span>/100</span></div><ol><li>{esc(burns[0])}</li></ol>'
-                    f'<p class="rv">Everything else we could box on a phone looks fine.</p></section>')
+                    f'<p class="rv">Everything else we could box on a phone looks fine.</p>'
+                    + (f'<div style="margin-top:10px">{fixpack.fix_link(job_id)}</div>' if fixpack.FIX_URL else "")
+                    + '</section>')
         return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div>'
                 f'<p class="rv">Hard to roast: nothing worth boxing on a phone.</p></section>')
     n_all = n_all or len(fix)
@@ -754,6 +756,7 @@ def roast_card(report, job_id, phone=None, n_all=None):
             f'<div class="rsh"><a class="rb" href="https://x.com/intent/post?text={tweet}" rel="noopener" '
             f'target="_blank">Share your roast</a> <a class="rb" href="/share/{esc(job_id)}.png?roast=1" '
             f'rel="noopener">Roast card image</a> <span>Every burn is a real problem.</span></div>'
+            + (f'<div style="margin-top:10px">{fixpack.fix_link(job_id)}</div>' if fixpack.FIX_URL else "")
             + (f'<form method="post" action="/buy/{esc(job_id)}"><button class="rbuy" type="submit">Fix all '
                f'<span class="lc-n">{n_all}</span> before anyone else sees them — {fixpack.PRICE}</button></form>'
                if fixpack.CHECKOUT_ON else '<a class="rbuy" href="#lc-fp">See every fix below</a>')
