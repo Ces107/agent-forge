@@ -190,6 +190,9 @@ def _browser_through_guard(module):
         if f["check"] == "tap-target":  # 24-43 px (logo, badge, theme toggle)
             m = re.search(r"(\d+)x(\d+) px", f.get("detail", ""))
             return bool(m) and min(int(m.group(1)), int(m.group(2))) >= 24
+        if f["check"] == "overlap":  # a small touch (wrapping next to an emoji) is not text on top of text
+            m = re.search(r"\((\d+) px2\)", f.get("detail", ""))
+            return bool(m) and int(m.group(1)) < 3000
         if f["check"] == "contrast":  # 4.45:1 against 4.5 is invisible to anyone: box only clear failures
             m = re.search(r"contrast (\d+(?:\.\d+)?):1 \(needs (\d+(?:\.\d+)?)\)", f.get("detail", ""))
             return bool(m) and float(m.group(1)) >= 0.9 * float(m.group(2))

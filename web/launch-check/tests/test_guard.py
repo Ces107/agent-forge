@@ -785,11 +785,12 @@ class Money(unittest.TestCase):
         self.assertIn("Nothing to fix in design or search", app.offer_block(clean))
         self.assertNotIn("/go/kit?", app.offer_block(clean))
 
-    def test_free_prompt_is_only_the_top_3(self):
+    def test_free_prompt_is_only_fix_one(self):
         text = app.fix_prompt(REPORT, "key", "")
         self.assertIn("Some text is hard to read", text)   # phone / Google first, headers last
+        self.assertIn("Fix: fix Some text is hard to read", text)  # the exact fix for #1 only
         self.assertNotIn("No CSP", text)
-        self.assertEqual(sum(1 for line in text.splitlines() if line[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")), 3)
+        self.assertNotIn("No sitemap", text)               # #2 onwards: the full prompt is in the pack
         self.assertNotIn("agensi", text.lower())
         self.assertNotIn("kit", text.lower())
 

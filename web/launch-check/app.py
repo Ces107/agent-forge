@@ -569,16 +569,14 @@ def offer_block(report, v="dev", src="", phone=None):
 
 
 def fix_prompt(report, v="dev", src=""):
-    """Free copy-paste prompt: ONLY the top 3 problems, one sentence each."""
-    top = other_items(report)[:3]
+    """Free copy-paste prompt: problem #1 with its exact fix (the prompt for every problem is in the Fix Pack)."""
+    top = other_items(report)[:1]
     if not top:
         return ""
-    lines = [f"My site {report['final_url']} was checked before launch. Please fix these problems, in order, and "
-             "tell me what you changed:"]
-    for i, f in enumerate(top, 1):
-        where = f" (on {f['where']})" if f["where"] and f["area"] != "phone" else ""
-        lines.append(f"{i}. {scanner.lc.short(f['title'], 140)}{where}.")
-    return "\n".join(lines)
+    f = top[0]
+    where = f" (on {f['where']})" if f["where"] and f["area"] != "phone" else ""
+    return (f"My site {report['final_url']} was checked before launch. Please fix this and tell me what you changed:\n"
+            f"{scanner.lc.short(f['title'], 140)}{where}. Fix: {fix_with_background(f)}")
 
 
 ROAST = {  # one true, funny line per problem: every burn is a finding on the page, never invented
@@ -735,11 +733,12 @@ def roast_card(report, job_id, phone=None, n_all=None):
                 '<a class="rb" href="#lc-ps">Try the render again below</a></section>')
     fix = other_items(report)
     burns = roast_lines(roast_items(report, phone), urlparse.urlsplit(report["final_url"]).hostname or "")
-    if len(burns) < 2:  # fewer than two hard failures on the picture: it passes, nothing worth a roast or a sale
+    boxes = len(((phone or {}).get("stats") or {}).get("legend") or [])
+    if boxes < 2 or not burns:  # fewer than two boxed failures on the picture: it passes, no roast and no sale
         host = urlparse.urlsplit(report["final_url"]).hostname or ""
         return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div><div class="rs">'
-                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: we found at most one thing worth '
-                f'boxing.</p>' + (f'<ol><li>{esc(burns[0])}</li></ol>' if burns else "") + '</section>')
+                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: '
+                f'{"nothing" if not boxes else "only one thing"} worth boxing on a phone.</p></section>')
     n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
@@ -962,7 +961,7 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
             f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
-            f'<div class="ask"><div class="h">Free: paste this to your AI</div><button id="lc-copy" type="button">Copy for '
+            f'<div class="ask"><div class="h">Free: fix #1, ready to paste to your AI (the prompt for all of them is in the Fix Pack)</div><button id="lc-copy" type="button">Copy for '
             f'your AI</button><pre id="p">{esc(prompt)}</pre></div><p class="lc-nc">Not checked in the free scan: tablet '
             f'and desktop renders, hover states, re-scoring after fixes.</p></section>' if n else
             '<section class="lc-top3"><h2>No problems worth fixing before launch</h2></section>')
@@ -1550,9 +1549,10 @@ class Handler(BaseHTTPRequestHandler):
                 # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
                 bh = urlparse.urlsplit(((job or {}).get("report") or {}).get("final_url", "")).hostname or host
                 lines = roast_lines(items, bh)
-                passes = jpg and len(lines) < 2
+                nbox = len((ph.get("stats") or {}).get("legend") or [])
+                passes = jpg and (nbox < 2 or not lines)
                 if passes:
-                    lines = ["Hard to roast: at most one thing worth boxing."] + lines
+                    lines = ["Hard to roast: " + ("nothing" if not nbox else "only one thing") + " worth boxing on a phone."]
                 png = (roast_png(host, now, lines, jpg, "PASSES ON A PHONE" if passes else "ROASTED") if jpg
                        else roast_hold_png(host))  # same verdict and wording as the page
                 if not png:

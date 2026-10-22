@@ -419,6 +419,12 @@ def _blur_lines(n: int, widths=(34, 52, 41, 60, 27, 48, 56, 38)) -> str:
     return "\n".join("▆" * widths[i % len(widths)] for i in range(n))
 
 
+def with_background(f: dict) -> str:
+    """Contrast fixes name the background they were measured on."""
+    m = re.search(r" on (#[0-9a-fA-F]{3,8})", f.get("detail", "")) if f.get("rule") == "phone-contrast" else None
+    return f'{f["fix"]} (on background {m.group(1)})' if m and "background" not in f["fix"] else f["fix"]
+
+
 def preview_lines(name: str, text: str, report: dict) -> tuple[list[str], int]:
     """What a card shows unlocked: the lines the site does NOT already have come first (no comments)."""
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("<!--")]
@@ -465,7 +471,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
         k = order[0]  # the most visible fix is the best proof
         f4 = fix[k]
         proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of <span class="lc-n">{total}</span>, unlocked as a sample</div>'
-                 f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
+                 f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(with_background(f4))}</p>'
                  + (f'<div class="fp-more">+{total - 4} more problem{"s" if total - 4 != 1 else ""} like this in the pack</div>'
                     if total > 4 else "") + "</div>")
     hidden = sum(1 for f in fix[3:] if f.get("measured"))  # phone problems measured but not boxed for free
