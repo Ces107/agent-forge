@@ -740,7 +740,9 @@ def roast_card(report, job_id, phone=None, n_all=None):
     if boxes < 2 or len(burns) < 2:  # a roast needs two boxed problems; one is a fix, none is a pass
         host = urlparse.urlsplit(report["final_url"]).hostname or ""
         if boxes and burns:
-            return (f'<section class="lc-roast"><div class="rk">ONE THING TO FIX ON A PHONE · {esc(host)}</div>'
+            total = n_all or len(fix)  # lead with the whole count: one boxed, the rest in the pack
+            return (f'<section class="lc-roast"><div class="rk">{total} PROBLEM{"S" if total != 1 else ""} FOUND · 1 BOXED '
+                    f'ON YOUR PHONE · {esc(host)}</div>'
                     f'<div class="rs">{report["score"]}<span>/100</span></div><ol><li>{esc(burns[0])}</li></ol>'
                     f'<p class="rv">One problem is boxed on your phone screen; the full list and every fix are below.</p>'
                     + (f'<div style="margin-top:10px">{fixpack.fix_link(job_id)}</div>' if fixpack.FIX_URL else "")
@@ -1641,7 +1643,9 @@ class Handler(BaseHTTPRequestHandler):
                 nbox = len(lg)
                 title = "ROASTED"  # same verdict and wording as the page
                 if nbox < 2 or len(lines) < 2:
-                    title = "ONE THING TO FIX ON A PHONE" if nbox and lines else "PASSES ON A PHONE"
+                    nprob = len(other_items(job["report"])) if job and job.get("report") else 0
+                    title = (f"{nprob} PROBLEMS FOUND · 1 BOXED" if nprob > 1 else "ONE THING TO FIX ON A PHONE") \
+                        if nbox and lines else "PASSES ON A PHONE"
                     lines = lines[:1] if nbox and lines else ["Hard to roast: nothing worth boxing on a phone."]
                 png = roast_png(host, now, lines, jpg, title) if jpg else roast_hold_png(host)
                 if not png:
