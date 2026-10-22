@@ -32,7 +32,7 @@ from urllib import parse as urlparse
 
 import scan as scanner
 
-PRICE, PRICE_WAS = "$9", "$15"
+PRICE, PRICE_WAS = os.environ.get("LC_PRICE", "$9"), os.environ.get("LC_PRICE_WAS", "$15")  # launch price via env
 # Real before/afters from re-scans, shown next to the buy button: LC_PROOF="site.com|62|94;other.app|55|90"
 PROOF = [p.split("|") for p in os.environ.get("LC_PROOF", "").split(";") if p.count("|") == 2][:3]
 

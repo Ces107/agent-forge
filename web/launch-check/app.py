@@ -1177,8 +1177,7 @@ def drop_phone_guesses(report):
 def merge_render(report, stats):
     """Replace the page-code guesses about phone layout with what the real browser measured (boxed ones first)."""
     kinds = stats.get("kinds") or []
-    if not kinds and stats.get("mode") not in ("clean",):
-        return
+    report["phone_measured"] = True  # a finished render is a measurement, even when it found nothing to box
     boxed = {x["key"]: int(x["n"]) for x in stats.get("legend") or []}
     # the render measured the page itself (viewport included): only image facts from the code stay
     report["findings"] = [f for f in report["findings"] if f["area"] != "phone" or f["rule"] == "phone-images"]

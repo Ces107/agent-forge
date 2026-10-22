@@ -204,7 +204,7 @@ def _browser_through_guard(module):
                 and bx[0] < width][:cap]
 
     def visible_spot(f):  # structure problems (heading order, image labels) are listed, never boxed on the picture
-        return key_of(f) not in ("images", "headings")
+        return key_of(f) not in ("images", "headings", "overflow")  # overflow spills off the shot: listed, not boxed
 
     tap_boxes = {}  # width -> every small tap target's box, for WCAG 2.2's spacing exception
 
