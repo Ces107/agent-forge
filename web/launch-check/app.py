@@ -608,7 +608,9 @@ def roast_lines(items):
     """items = [(rule, title)] in list order -> up to 3 burns (titles as plain fallback) + a verdict line."""
     burns = []
     for rule, title in items:
-        line = ROAST.get(rule) or ROAST.get("phone-" + rule.split("phone-")[-1]) or f"{title}. Bold choice."
+        line = ROAST.get(rule) or (f"{title}. Bold choice." if title else "")
+        if not line:
+            continue
         if line not in burns:
             burns.append(line)
         if len(burns) == 3:
@@ -1069,7 +1071,7 @@ def roast_png(host, score, burns, phone_jpg=None):
             d.text((x, y), line, font=_font(30), fill=(241, 245, 249))
             y += 40
         y += 18
-    d.text((x, 560), f"Get roasted: {urlparse.urlsplit(SITE).hostname}/roast", font=_font(26), fill=(148, 163, 184))
+    d.text((x, 560), f"Get roasted: {urlparse.urlsplit(SITE).hostname}/roast", font=_font(22), fill=(148, 163, 184))
     buf = _io.BytesIO()
     img.save(buf, "PNG", optimize=True)
     return buf.getvalue()
@@ -1294,7 +1296,10 @@ class Handler(BaseHTTPRequestHandler):
                     items = [(f["rule"], scanner.lc.short(f["title"], 90)) for f in other_items(job["report"])]
                 else:
                     items = [(x.get("r", ""), x.get("t", "")) for x in (RESULTS.get(sh.group(1)) or {}).get("top3", [])]
-                jpg = ((job or {}).get("phone") or {}).get("jpg") or (LASTING_PHONE.get(sh.group(1)) or {}).get("jpg")
+                ph = (job or {}).get("phone") or LASTING_PHONE.get(sh.group(1)) or {}
+                jpg = ph.get("jpg")
+                if jpg:  # the card roasts what its picture shows first: the boxed problems
+                    items = [("phone-" + x.get("key", ""), "") for x in (ph.get("stats") or {}).get("legend") or []] + items
                 png = roast_png(host, now, roast_lines(items), jpg)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
