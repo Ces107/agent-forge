@@ -614,6 +614,21 @@ def page_text(body):
     return {"h1": lc.clean(tp.h1, 200), "p": lc.clean(tp.p, 600)}
 
 
+CHALLENGE_TITLE = re.compile(r"<title[^>]*>[^<]*(just a moment|attention required|captcha|security check|access denied|"
+                             r"verify(ing)? you are human|are you a robot|bot (check|protection)|ddos)", re.I)
+CHALLENGE_MARK = re.compile(r"g-recaptcha|h-captcha|cf-turnstile|challenge-platform|px-captcha|captcha-delivery|"
+                            r"/cdn-cgi/challenge", re.I)
+
+
+def is_challenge(html_text):
+    """A bot-check page instead of the site: a challenge title, or a captcha widget on an almost empty page (a contact
+    form with reCAPTCHA on a real page doesn't count)."""
+    if CHALLENGE_TITLE.search(html_text[:20000]):
+        return True
+    visible = re.sub(r"(?s)<(script|style)[^>]*>.*?</>|<[^>]+>", " ", html_text)
+    return bool(CHALLENGE_MARK.search(html_text)) and len(" ".join(visible.split())) < 1500
+
+
 def scan(raw_url, keys=True):
     """keys=False: design + search + basics only; no script is fetched or searched for keys (links made for
     someone else's site)."""
@@ -626,6 +641,9 @@ def scan(raw_url, keys=True):
         raise ScanError(f"We couldn't reach your site (it returned {resp.status} to our checker). Try another URL "
                         "or check it's public.")
     final = resp.url
+    if is_challenge(lc.decode(resp.body)):
+        raise ScanError("Your site showed our checker a bot check or captcha instead of the page, so there is nothing "
+                        "real to measure. Try your preview address, or allow the check through your firewall.")
     parser = lc.PageParser()
     try:
         parser.feed(lc.decode(resp.body))

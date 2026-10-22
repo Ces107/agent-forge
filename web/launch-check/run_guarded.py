@@ -74,7 +74,8 @@ DISMISS_JS = r"""() => {
 
 BOTCHECK_JS = r"""() => {
   const t = (document.title || '') + ' ' + (document.body ? document.body.innerText.slice(0, 3000) : '');
-  if (/just a moment|performing security verification|checking your browser|verify you are human|attention required|ddos protection|are you a robot|please enable cookies and reload|access denied|request blocked/i.test(t)) return true;
+  if (/just a moment|performing security verification|checking your browser|verify you are human|attention required|ddos protection|are you a robot|please enable cookies and reload|access denied|request blocked|complete the security check|human verification|unusual traffic|press (and|&) hold/i.test(t)) return true;
+  if (/captcha/i.test(t) && t.length < 2500) return true;
   return !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,.cf-turnstile,iframe[src*="challenges.cloudflare.com"],iframe[src*="captcha"],#px-captcha,.g-recaptcha,.h-captcha');
 }"""
 

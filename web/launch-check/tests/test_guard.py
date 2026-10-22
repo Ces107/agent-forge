@@ -650,6 +650,14 @@ class PackHonesty(unittest.TestCase):
         self.assertEqual(fixpack.pack_files(rep), {})
 
 
+class Challenge(unittest.TestCase):
+    def test_bot_check_pages_are_never_measured(self):
+        self.assertTrue(scan.is_challenge("<title>Just a moment...</title>"))
+        self.assertTrue(scan.is_challenge("<html><body><div class='g-recaptcha'></div>Please verify</body></html>"))
+        page = "<html><title>Shop</title><body>" + "word " * 400 + "<form><div class='g-recaptcha'></div></form></body>"
+        self.assertFalse(scan.is_challenge(page))  # a real page with a contact-form captcha is a real page
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
