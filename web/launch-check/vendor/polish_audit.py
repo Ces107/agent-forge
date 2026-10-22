@@ -245,6 +245,15 @@ function opacity(el) { if (!el || el.nodeType !== 1) return 1; if (opMap.has(el)
   const o = parseFloat(cs(el).opacity || '1') * opacity(el.parentElement); opMap.set(el, o); return o; }
 function visible(el) { const c = cs(el); if (c.display === 'none' || c.visibility === 'hidden' || c.visibility === 'collapse') return false;
   const r = el.getBoundingClientRect(); return r.width >= 1 && r.height >= 1 && opacity(el) > 0.05; }
+const floatMap = new Map();
+function inFloating(el) {  // inside a fixed box that isn't the top header: chat/feedback widgets, floating badges
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    if (floatMap.has(e)) return floatMap.get(e);
+    if (cs(e).position === 'fixed') { const r = e.getBoundingClientRect(); const v = !(r.top < 10 && r.height < 130);
+      floatMap.set(e, v); return v; }
+  }
+  return false;
+}
 function shown(el, r) {  // not clipped away by a collapsed parent, and not covered by something else on screen
   if (!clipRects(el, [{l: r.left + SX, t: r.top + SY, r: r.right + SX, b: r.bottom + SY}]).length) return false;
   if (!(el.innerText || el.value || '').trim() && !el.querySelector('img,svg,picture,video,canvas')
@@ -393,8 +402,10 @@ for (const el of all) {
       const lr = el.labels[0].getBoundingClientRect(); tr = {width: Math.max(lr.width, r.width), height: Math.max(lr.height, r.height)}; }
     // an image-only link of 24 px or more (logo, award badge, social icon) is a picture, not a cramped button
     const imageOnly = !(el.innerText || '').trim() && !!el.querySelector('img,svg,picture') && Math.max(tr.width, tr.height) >= 24;
+    // the home/logo link and third-party floating widgets (feedback, chat) aren't the site's own buttons
+    const homeLink = el.tagName === 'A' && /^(\/|\/#?|#top)?$/.test(el.getAttribute('href') || '') && r.top < 120;
     if (!inline && !el.closest('[aria-hidden=true]') && (tr.width < 44 || tr.height < 44) && !srOnly(el)
-        && shown(el, r) && !imageOnly)
+        && shown(el, r) && !imageOnly && !homeLink && !inFloating(el))
       R.taps.push({sel: sel(el), box: box(r), w: Math.round(tr.width), h: Math.round(tr.height)});
   }
   // text
@@ -454,7 +465,9 @@ for (const el of all) {
     let worst = 99, worstBg = null;
     for (const b of bgs) { const f = blend(fa, b); const v = ratio(f, b); if (v < worst) { worst = v; worstBg = b; } }
     const large = q.fs >= 24 || (q.fs >= 18.66 && q.fw >= 700); const need = large ? 3 : 4.5;
-    if (worst < need - 0.005) R.contrast.push({sel: sel(q.el), box: box(q.r), ratio: Math.round(worst * 100) / 100, need: need,
+    // decorative glyphs (rating stars, arrows, bullets) are not text anyone reads; floating widgets aren't the site
+    const readable = /[A-Za-zÀ-ɏЀ-ӿ0-9]{2,}/.test(q.dt || '');
+    if (worst < need - 0.005 && readable && !inFloating(q.el)) R.contrast.push({sel: sel(q.el), box: box(q.r), ratio: Math.round(worst * 100) / 100, need: need,
       fg: hex(blend(fa, worstBg)), fgRaw: hex(q.fg), bg: hex(worstBg), gradient: bgs.length > 1, size: q.fs, text: q.dt.slice(0, 40)});
   }
   window.scrollTo(0, 0); }

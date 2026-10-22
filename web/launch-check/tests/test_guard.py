@@ -592,10 +592,14 @@ class Roast(unittest.TestCase):
         self.assertIn("Roast my site", app.page("n", "roast", url_value="a.com", autostart=True))
         rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
         self.assertIn("ROAST ON HOLD", app.roast_card(rep, "J" * 24))  # no picture, no roast
-        card = app.roast_card(rep, "J" * 24, {"jpg": b"x", "stats": {"legend": [{"n": 1, "key": "tap-target",
-                                                                              "detail": "tap target 100x16 px"}]}})
+        one = {"jpg": b"x", "stats": {"legend": [{"n": 1, "key": "tap-target", "detail": "tap target 100x16 px"}]}}
+        self.assertIn("PASSES ON A PHONE", app.roast_card(rep, "J" * 24, one))  # one failure: no roast, no sale
+        two = {"jpg": b"x", "stats": {"legend": one["stats"]["legend"] + [
+            {"n": 2, "key": "contrast", "detail": "contrast 2.10:1 (needs 4.5) #999 on #fff"}]}}
+        card = app.roast_card(rep, "J" * 24, two)
         self.assertIn("ROASTED", card)
         self.assertIn("16 px", card)
+        self.assertIn("2.10:1", card)
         png = app.roast_png("a.com", 64, ["Burn one.", "Burn two."])
         self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
 

@@ -730,6 +730,11 @@ def roast_card(report, job_id, phone=None, n_all=None):
                 '<a class="rb" href="#lc-ps">Try the render again below</a></section>')
     fix = other_items(report)
     burns = roast_lines(roast_items(report, phone), urlparse.urlsplit(report["final_url"]).hostname or "")
+    if len(burns) < 2:  # fewer than two hard failures on the picture: it passes, nothing worth a roast or a sale
+        host = urlparse.urlsplit(report["final_url"]).hostname or ""
+        return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div><div class="rs">'
+                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: we found at most one thing worth '
+                f'boxing.</p>' + (f'<ol><li>{esc(burns[0])}</li></ol>' if burns else "") + '</section>')
     n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
@@ -1417,7 +1422,8 @@ class Handler(BaseHTTPRequestHandler):
                         ph = start_lasting_phone(m.group(1), RESULTS[m.group(1)])
                 if ph["state"] == "rendering" and time.time() - ph.get("t", (job or {}).get("t", 0)) > 240:
                     ph = {"state": "none"}
-                return self.send(200, json.dumps({"state": ph["state"], **phone_counts(ph.get("stats"))}),
+                pc = {k: v for k, v in phone_counts(ph.get("stats")).items() if k not in ("total", "more", "boxed")}
+                return self.send(200, json.dumps({"state": ph["state"], **pc}),  # problems, never raw render spots
                                  "application/json")
             if m.group(2) == "/phone.jpg" and not job:
                 jpg = (LASTING_PHONE.get(m.group(1)) or {}).get("jpg")
@@ -1511,7 +1517,10 @@ class Handler(BaseHTTPRequestHandler):
                     start_phone(job, job["report"])
                 # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
                 bh = urlparse.urlsplit(((job or {}).get("report") or {}).get("final_url", "")).hostname or host
-                png = roast_png(host, now, roast_lines(items, bh), jpg) if jpg else roast_hold_png(host)  # page's wording
+                lines = roast_lines(items, bh)
+                if jpg and len(lines) < 2:
+                    lines = ["Passes on a phone: at most one thing worth boxing."] + lines
+                png = roast_png(host, now, lines, jpg) if jpg else roast_hold_png(host)  # page's wording
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")
@@ -1696,7 +1705,8 @@ class Handler(BaseHTTPRequestHandler):
             scanner.validate(url)
         except scanner.ScanError as exc:
             return self.send(400, page(n, v, url_value=url, error=str(exc), src=src), nonce=n)
-        ok, wait = rate_ok(client_ip(self))
+        kit = bool(STATS_TOKEN) and secrets.compare_digest(self.headers.get("X-LC-Token") or "", STATS_TOKEN)
+        ok, wait = (True, 0) if kit else rate_ok(client_ip(self))  # the founder's reply kit pre-runs in bulk
         if not ok:
             return self.send(429, page(n, v, url_value=url, error=f"{RATE_MAX} checks per 10 minutes per visitor. Try again in "
                                                                   f"{max(1, wait // 60)} min."), nonce=n,
