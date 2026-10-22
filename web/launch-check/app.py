@@ -1463,7 +1463,7 @@ class Handler(BaseHTTPRequestHandler):
             return ogmaker.handle_get(self, path, parts.query)
         if path == "/":
             q = urlparse.parse_qs(parts.query)
-            v = (q.get("v") or ["dev"])[0]
+            v = (q.get("v") or ["launch"])[0]  # the home page speaks to Lovable/Bolt/v0 makers (every channel's audience)
             n = secrets.token_urlsafe(16)
             pre = (q.get("url") or [""])[0].strip()[:2000]
             return self.send(200, page(n, v, url_value=pre, src=(q.get("utm_source") or q.get("src") or [""])[0],

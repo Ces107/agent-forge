@@ -751,7 +751,7 @@ class PhoneFunnel(unittest.TestCase):
             html_ = fixpack.locked_preview(rep, "J" * 24, None, "https://x", demo=False)
         finally:
             fixpack.CHECKOUT_ON = real
-        self.assertIn('Get all <span class="lc-n">5</span> fixes', html_)
+        self.assertIn('This is my site: unlock all <span class="lc-n">5</span> fixes', html_)
         self.assertIn('Problem #4 of <span class="lc-n">5</span>, unlocked as a sample', html_)
         self.assertNotIn("spots", html_)
         lines, missing = fixpack.preview_lines("meta-tags.html", fixpack.meta_tags_html(rep), rep)

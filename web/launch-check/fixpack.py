@@ -521,7 +521,8 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
               + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(len(steps) - 1, 5))}</pre>'
                  if len(steps) > 1 else "") + "</div>")
     if CHECKOUT_ON:
-        label = f'Get all <span class="lc-n">{total}</span> fixes' if total > 3 else "Get my Fix Pack: files + renders"
+        label = (f'This is my site: unlock all <span class="lc-n">{total}</span> fixes' if total > 3
+                 else "This is my site: get the Fix Pack")  # a roast link opened by the owner sells to the owner
         button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">{label} '
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · free re-scan for 7 days with a before/after card '
