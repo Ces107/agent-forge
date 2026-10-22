@@ -604,7 +604,9 @@ def page_text(body):
     return {"h1": lc.clean(tp.h1, 200), "p": lc.clean(tp.p, 600)}
 
 
-def scan(raw_url):
+def scan(raw_url, keys=True):
+    """keys=False: design + search + basics only; no script is fetched or searched for keys (links made for
+    someone else's site)."""
     t0 = time.time()
     deadline = t0 + BUDGET
     url = validate(raw_url)
@@ -635,7 +637,10 @@ def scan(raw_url):
         t.start()
 
     notes, skipped = [], {}
-    findings, assets = scan_scripts(fetcher, final, resp, parser)
+    if keys:
+        findings, assets = scan_scripts(fetcher, final, resp, parser)
+    else:
+        findings, assets = [], {"same_origin": 0, "scanned": 0, "bytes": 0, "skipped_offsite": 0, "keys_off": True}
     if assets["skipped_offsite"] and not assets["scanned"]:
         notes.append(f"{assets['skipped_offsite']} scripts load from third-party hosts: not scanned for keys")
     findings += lc.check_headers(resp, final)

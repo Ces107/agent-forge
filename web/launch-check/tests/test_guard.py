@@ -532,7 +532,7 @@ class Round23(unittest.TestCase):
                             "score": 71, "key": "ok", "keys": [], "top3": [], "n": 0, "v": "launch"}
         started = []
 
-        def fake_start(url, v, src="", job_id=None, keep=False):
+        def fake_start(url, v, src="", job_id=None, keep=False, keys=True):
             started.append((url, v, job_id))
             app.JOBS[job_id] = {"state": "running", "t": time.time(), "started": time.time(), "url": url, "v": v,
                                 "src": src, "host": "a.com", "id": job_id}
@@ -588,6 +588,23 @@ class Roast(unittest.TestCase):
         self.assertIn("ants can sign up", card)
         png = app.roast_png("a.com", 64, ["Burn one.", "Burn two."])
         self.assertTrue(png is None or png.startswith(bytes([0x89, 0x50, 0x4E, 0x47])))
+
+
+class DesignOnly(unittest.TestCase):
+    def test_k0_never_fetches_scripts_for_keys(self):
+        self.assertIn('name="k" value="0"', app.page("n", "roast", url_value="a.com", autostart=True, keys=False))
+        self.assertNotIn('name="k"', app.page("n", "roast", url_value="a.com", autostart=True))
+        called = []
+        real = scan.scan_scripts
+        scan.scan_scripts = lambda *a, **k: called.append(1) or ([], {})
+        try:
+            with self.assertRaises(Exception):
+                scan.scan("https://127.0.0.1/", keys=False)  # refused by the guard before anything; never key-scans
+        finally:
+            scan.scan_scripts = real
+        self.assertEqual(called, [])
+        rep = {**REPORT, "facts": {"assets": {"keys_off": True}}}
+        self.assertIn("Not checked on this link", app.secret_banner(rep))
 
 
 class StatsHistory(unittest.TestCase):

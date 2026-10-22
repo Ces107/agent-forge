@@ -402,7 +402,7 @@ def shell(inner, nonce, v="dev", extra_head="", script=""):
 </div></main>{script}</body></html>"""
 
 
-def page(nonce, v="dev", url_value="", error="", src="", autostart=False):
+def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=True):
     v = variant(v)
     d = copy_for(v)
     err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
@@ -426,7 +426,7 @@ def page(nonce, v="dev", url_value="", error="", src="", autostart=False):
 {err}<form method="post" action="/check" id="f">
 <input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
  placeholder="https://your-app.com" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
-<input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">
+<input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">{"" if keys else '<input type="hidden" name="k" value="0">'}
 <button type="submit" id="b">{esc(d.get("button", "Check my app — free"))}</button>
 </form>
 <div class="bar" aria-hidden="true"><i></i></div>
@@ -469,6 +469,11 @@ def secret_banner(report):
     """The first section of the result: is a secret key showing?"""
     items = key_items(report)
     assets = report["facts"].get("assets") or {}
+    if assets.get("keys_off"):
+        return ('<section class="lc-key k-mid"><h1>Is a secret key showing?</h1><div class="lc-ans"><div class="lc-ico" '
+                'aria-hidden="true">?</div><div><b>Not checked on this link</b><div class="lc-scope">This link was made '
+                'for someone else\'s site, so only design and search were checked. Your site? <a href="/?v=launch">'
+                'Check it yourself</a> for exposed keys too.</div></div></div></section>')
     n, off = assets.get("scanned", 0), assets.get("skipped_offsite", 0)
     red = [f for f in items if f["severity"] == "HIGH" and f["rule"].startswith("secret-")]
     s = lambda k: "s" if k != 1 else ""  # noqa: E731
@@ -761,7 +766,8 @@ def summary_of(report, job):
             "score": report["score"], "v": job.get("v", "dev"), "src": job.get("src", ""),
             "key": "bad" if red else ("mid" if keys else "ok"), "keys": [scanner.lc.short(f["title"], 120) for f in keys][:3],
             "top3": [{"t": scanner.lc.short(f["title"], 140), "a": f["area"], "r": f["rule"]} for f in fix[:3]],
-            "n": len(fix), "scripts": assets.get("scanned", 0), "off": assets.get("skipped_offsite", 0)}
+            "n": len(fix), "scripts": assets.get("scanned", 0), "off": assets.get("skipped_offsite", 0),
+            "k": 0 if assets.get("keys_off") else 1}
 
 
 def lasting_page(sm, nonce, phone_state=None, phone_stats=None):
@@ -910,7 +916,7 @@ def _prune(now):
         JOBS.pop(k, None)
 
 
-def start_job(url, v, src="", job_id=None, keep=False):
+def start_job(url, v, src="", job_id=None, keep=False, keys=True):
     """Register a scan and run it in the background. Returns the job id, or None when too many are pending."""
     now = time.time()
     host = (urlparse.urlsplit(url if "://" in url else "https://" + url).hostname or "your site")[:80]
@@ -920,7 +926,8 @@ def start_job(url, v, src="", job_id=None, keep=False):
             return None
         job_id = job_id or secrets.token_urlsafe(18)
         JOBS[job_id] = {"state": "queued", "t": now, "url": url, "v": variant(v), "src": clean_src(src), "host": host,
-                        "id": job_id, "keep_until": now + fixpack.PACK_DAYS * 86400 if keep else 0}
+                        "id": job_id, "keep_until": now + fixpack.PACK_DAYS * 86400 if keep else 0,
+                        "keys": bool(keys)}
 
     def work():
         job = JOBS.get(job_id)
@@ -931,7 +938,7 @@ def start_job(url, v, src="", job_id=None, keep=False):
             return
         try:
             job.update(state="running", started=time.time())
-            report = scanner.scan(url)
+            report = scanner.scan(url, keys=job.get("keys", True))
             report["job"] = job_id  # stamped: the page refuses to show a report from any other job
             start_phone(job, report)  # before "done", so the first result page already shows "rendering"
             job.update(state="done", report=report)
@@ -1195,7 +1202,8 @@ class Handler(BaseHTTPRequestHandler):
             n = secrets.token_urlsafe(16)
             pre = urlparse.unquote(path[len("/roast/"):]).strip()[:2000] if path.startswith("/roast/") else ""
             src = (urlparse.parse_qs(parts.query).get("src") or [""])[0]
-            return self.send(200, page(n, "roast", url_value=pre, src=src, autostart=bool(pre)), nonce=n,
+            keys = (urlparse.parse_qs(parts.query).get("k") or ["1"])[0] != "0"  # k=0: a link made for someone else
+            return self.send(200, page(n, "roast", url_value=pre, src=src, autostart=bool(pre), keys=keys), nonce=n,
                              cache="no-cache")
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
@@ -1234,7 +1242,7 @@ class Handler(BaseHTTPRequestHandler):
                 if sm and time.time() - sm["t"] < RESULT_DAYS * 86400:
                     # A shared link outlives the in-memory report: re-scan under the same id (~20 s) so the visitor
                     # gets the full result, the Fix Pack preview and checkout, not a summary.
-                    if start_job(sm["url"], sm.get("v", "dev"), sm.get("src", ""), job_id=m.group(1)):
+                    if start_job(sm["url"], sm.get("v", "dev"), sm.get("src", ""), job_id=m.group(1), keys=sm.get("k", 1) != 0):
                         count("result_reopened", sm.get("v", "dev"), sm.get("src", ""))
                         return self.send(200, progress_page(m.group(1), JOBS[m.group(1)], n), nonce=n)
                     ph = LASTING_PHONE.get(m.group(1))
@@ -1487,7 +1495,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(429, page(n, v, url_value=url, error=f"{RATE_MAX} checks per 10 minutes per visitor. Try again in "
                                                                   f"{max(1, wait // 60)} min."), nonce=n,
                              extra={"Retry-After": str(wait)})
-        job_id = start_job(url, v, src)
+        job_id = start_job(url, v, src, keys=(form.get("k") or ["1"])[0] != "0")
         if job_id:
             count("scans_started", v, src)
         if not job_id:
