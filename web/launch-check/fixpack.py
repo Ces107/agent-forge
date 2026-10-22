@@ -468,7 +468,7 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                  f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
                  + (f'<div class="fp-more">+{total - 4} more problem{"s" if total - 4 != 1 else ""} like this in the pack</div>'
                     if total > 4 else "") + "</div>")
-    hidden = sum(1 for f in fix[3:] if f["area"] == "phone")  # phone problems the free page doesn't box
+    hidden = sum(1 for f in fix[3:] if f.get("measured"))  # phone problems measured but not boxed for free
     thumbs = ('<div class="fp-thumbs" aria-hidden="true"><div class="fp-t fp-ph"></div><div class="fp-t fp-tab"></div>'
               '<div class="fp-t fp-desk"></div></div><div class="fp-tl">Phone · tablet · desktop renders, '
               + (f'{hidden} more phone problem{"s" if hidden != 1 else ""} boxed' if hidden else 'every problem boxed')

@@ -931,7 +931,7 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
                    + (f'<small class="lc-fx">{esc(fix_with_background(f)[:260])}</small>'
-                      if (f.get("boxed") or f.get("measured")) and f.get("fix") else "") + "</li>" for f in fix[:3])
+                      if f.get("fix") else "") + "</li>" for f in fix[:3])
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
             f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
@@ -1235,8 +1235,7 @@ def roast_png(host, score, burns, phone_jpg=None):
     if phone_jpg:
         try:
             ph = Image.open(_io.BytesIO(phone_jpg)).convert("RGB")
-            ph = ph.crop((0, 0, ph.width, min(ph.height, int(ph.width * 1.55))))
-            ph.thumbnail((330, 530))
+            ph.thumbnail((330, 530))  # the whole screen: the boxes can sit anywhere on it
             frame = Image.new("RGB", (ph.width + 20, ph.height + 20), (2, 6, 23))
             frame.paste(ph, (10, 10))
             img.paste(frame, (60, (630 - frame.height) // 2))

@@ -77,6 +77,35 @@ BOTCHECK_JS = r"""() => {
   return !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,.cf-turnstile,iframe[src*="challenges.cloudflare.com"],iframe[src*="captcha"],#px-captcha,.g-recaptcha,.h-captcha');
 }"""
 
+HIDE_CONSENT_JS = r"""() => {
+  const q = '[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i],[id*="gdpr" i],[class*="gdpr" i],' +
+    '[aria-label*="cookie" i],[aria-label*="consent" i],[id*="privacy-banner" i],[class*="cmp-" i]';
+  let n = 0;
+  for (const el of document.querySelectorAll(q)) {
+    for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const p = getComputedStyle(e).position;
+      if (p === 'fixed' || p === 'sticky') {  // a fixed bar that talks about cookies, not a sticky site header
+        const t = e.innerText || '';
+        if (t.length < 1500 && /cookie|consent|privacy|gdpr|tracking/i.test(t)) { e.style.setProperty('display', 'none', 'important'); n++; }
+        break;
+      }
+    }
+  }
+  // banners with neutral class names: any fixed/sticky box (not the site header at the top) that asks about tracking
+  const ask = /cookie|consent|privacy|gdpr|tracking|analytics|accept (all|optional)|reject (all|optional)/i;
+  for (const e of document.body ? document.body.querySelectorAll('*') : []) {
+    const c = getComputedStyle(e);
+    if (c.position !== 'fixed' && c.position !== 'sticky') continue;
+    const r = e.getBoundingClientRect();
+    if (r.top < 10 && r.height < 130) continue;  // a sticky header
+    const t = e.innerText || '';
+    if (t.length < 1500 && ask.test(t) && e.querySelector('button,a,[role=button]')) {
+      e.style.setProperty('display', 'none', 'important'); n++;
+    }
+  }
+  return n;
+}"""
+
 STYLED_JS = r"""() => {
   const links = [...document.querySelectorAll('link[rel~="stylesheet"]')]
     .filter(l => !l.disabled && (!l.media || l.media === 'all' || matchMedia(l.media).matches));
@@ -133,11 +162,11 @@ def _browser_through_guard(module):
     def best_window(spots, width, doc_h):
         """The first screen if it shows at least 2 spots; otherwise the screen-tall stretch of the page that does."""
         def count(y0):  # distinct kinds of visible problems in this stretch of the page
-            return len({key_of(f) for f in spots if visible_spot(f) and boxes_in_view(f, width, 1, y0)})
+            return len({key_of(f) for f in spots if visible_spot(f) and not petty(f) and boxes_in_view(f, width, 1, y0)})
         if count(0) >= 2:
             return 0
         cands = sorted({int(max(0, min(bx[1] - 140, max(0, doc_h - clip_h))))
-                        for f in spots if visible_spot(f) for bx in f.get("boxes", {}).get(width, [])[:3]
+                        for f in spots if visible_spot(f) and not petty(f) for bx in f.get("boxes", {}).get(width, [])[:3]
                         if bx and len(bx) == 4} | {0})
         near = [y for y in cands if y <= 3 * clip_h]  # deep in the page, lazy content shifts boxes off their targets
         for pool in (near, cands):
@@ -284,6 +313,8 @@ def _browser_through_guard(module):
                         state["botcheck"] = True
                     elif page.evaluate(DISMISS_JS):
                         page.wait_for_timeout(500)
+                    if os.environ.get("LC_HIDE_CONSENT", "1") == "1":  # banners no button matched: hidden, never boxed
+                        state["hidden"] = page.evaluate(HIDE_CONSENT_JS)
                 except Exception:  # page navigated while we looked
                     pass
                 page.evaluate("() => window.scrollTo(0, 0)")
