@@ -179,15 +179,30 @@ def pack_files(report: dict) -> dict:
         sm = sitemap_xml(pages)
         ff = {**ff, **({"sitemap.xml": sm} if sm else {}), "llms.txt": llms_txt(report, pages)}
     ff = {k: v.replace("geo-seo-audit", "Launch Check") for k, v in ff.items()}
+    rules = {f["rule"] for f in report.get("findings", [])}
+
+    def needed(name):  # a file goes in the pack only when the scan found that it's missing or broken
+        return any(r.startswith(NEEDS[name]) for r in rules) if name in NEEDS else True
     files = {}
     for name in ("sitemap.xml", "robots.txt", "llms.txt"):
-        if ff.get(name):
+        if ff.get(name) and needed(name):
             files[name] = ff[name]
     jl = jsonld_html(ff)
-    if jl:
+    if jl and needed("json-ld.html"):
         files["json-ld.html"] = jl
-    files["meta-tags.html"] = meta_tags_html(report)
+    if needed("meta-tags.html"):
+        files["meta-tags.html"] = meta_tags_html(report)
     return files
+
+
+NEEDS = {  # rule prefixes that show a file is missing or broken on the site
+    "sitemap.xml": ("search-sitemap-",),
+    "robots.txt": ("search-robots-", "search-ai-search-bot-blocked"),
+    "llms.txt": ("search-llms-",),
+    "json-ld.html": ("search-schema-", "search-jsonld-"),
+    "meta-tags.html": ("desc-missing", "title-missing", "title-default", "og-image-missing", "search-og-",
+                       "search-desc-", "search-title-"),
+}
 
 
 FILE_ABOUT = {
@@ -477,7 +492,8 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
         button = ('<a class="fp-buy" href="/fix/demo">See a sample Fix Pack</a>'
                   f'<div class="fp-terms">Checkout opens soon · launch price {PRICE} <s>{PRICE_WAS}</s> · one-time · '
                   'instant download · re-scan free for 7 days · refund if it doesn\'t help</div>')
-    sub = (f"{total} problems found: {min(3, n)} free above, all {total} fixed here, plus the files your site is missing."
+    sub = (f"{total} problems found: {min(3, n)} free above, all {total} fixed here"
+           + (", plus the files your site is missing." if files else ".")
            if total > 3 else "Generated for your site: the files, the renders and the prompt.")
     return (f'<section class="fp" id="lc-fp"><h2>Your Fix Pack for {esc(host)}</h2><p class="fp-sub" id="fp-sub">{esc(sub)} Locked until '
             f'checkout.</p>{proof}<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">'

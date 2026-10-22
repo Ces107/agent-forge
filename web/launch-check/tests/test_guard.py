@@ -425,6 +425,8 @@ class FixPack(unittest.TestCase):
     @staticmethod
     def rep():
         return {**REPORT, "score": 64, "final_url": "https://a.com/",
+           "findings": REPORT["findings"] + [_f("search", "MEDIUM", "Bots blocked", "search-ai-search-bot-blocked"),
+                                             _f("search", "MEDIUM", "No org", "search-schema-home-org")],
            "fix_files": {"llms.txt": "# a\n\n> Makes things\n", "robots.txt": "User-agent: *\nAllow: /\n",
                          "jsonld/home.html": '<script type="application/ld+json">{"@type":"Organization"}</script>',
                          "jsonld/manifest.json": '[{"url":"https://a.com/","file":"jsonld/home.html","types":["Organization"]}]'},
@@ -635,6 +637,14 @@ class RenderFirst(unittest.TestCase):
         self.assertIn("21 px", burns[0])
 
 
+class PackHonesty(unittest.TestCase):
+    def test_pack_never_offers_a_file_the_site_already_has(self):
+        rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "x", "phone-contrast")],
+               "fix_files": {"sitemap.xml": "<urlset/>", "llms.txt": "# a", "robots.txt": "User-agent: *"},
+               "page_meta": {"title": "A", "description": "B", "og": {}}}
+        self.assertEqual(fixpack.pack_files(rep), {})
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
@@ -733,8 +743,10 @@ def _f(area, sev, title, rule="x"):
 REPORT = {"url": "https://a.com/", "final_url": "https://a.com/", "seconds": 5, "score": 70,
           "facts": {"assets": {"scanned": 3}},
           "findings": [_f("security", "MEDIUM", "No CSP", "csp-missing"),
-                       _f("phone", "MEDIUM", "Some text is hard to read"), _f("search", "HIGH", "No sitemap"),
-                       _f("speed", "MEDIUM", "No meta description"), _f("search", "MEDIUM", "No llms.txt"),
+                       _f("phone", "MEDIUM", "Some text is hard to read"),
+                       _f("search", "HIGH", "No sitemap", "search-sitemap-missing"),
+                       _f("speed", "MEDIUM", "No meta description", "desc-missing"),
+                       _f("search", "MEDIUM", "No llms.txt", "search-llms-missing"),
                        _f("phone", "LOW", "Uneven spacing")]}
 
 

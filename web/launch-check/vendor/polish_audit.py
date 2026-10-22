@@ -444,6 +444,10 @@ for (const el of all) {
       if (idx >= 0) list = st.slice(idx); }
     if (!list) list = ancestors(q.el);
     const pts = []; for (const t of q.rects.slice(0, 4)) { const my = (t.t + t.b) / 2; pts.push([t.l + 1, my], [(t.l + t.r) / 2, my], [t.r - 1, my]); }
+    // gradient-filled text (background-clip: text) is painted by its background, not its color: not measurable here
+    let clipText = false; for (let e = q.el, k = 0; e && k < 3 && !clipText; e = e.parentElement, k++) { const c2 = cs(e);
+      clipText = c2.backgroundClip === 'text' || c2.webkitBackgroundClip === 'text' || /rgba\(0, 0, 0, 0\)|transparent/.test(c2.webkitTextFillColor || ''); }
+    if (clipText) { R.contrastUnknown++; continue; }
     const bgs = backgrounds(q.el, list, pts);
     if (bgs === null) { R.contrastUnknown++; continue; }
     const fa = [q.fg[0], q.fg[1], q.fg[2], q.fg[3] * opacity(q.el)];
