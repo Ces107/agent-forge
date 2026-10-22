@@ -421,13 +421,15 @@ def preview_lines(name: str, text: str, report: dict) -> tuple[list[str], int]:
     return lines, new
 
 
-def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: str, demo: bool) -> str:
+def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: str, demo: bool,
+                   n_all: int = 0) -> str:
     """The free page's view of the paid pack: problem #4 in full as proof, the lines each file adds, the rest blurred
     (and NOT in the HTML). One count: n = the result page's problem list (top 3 free, the rest here)."""
     files = pack_files(report)
     steps = full_steps(report, files)
     fix = scanner.things_to_fix(report["findings"])
     n = len(fix)
+    total = max(n, n_all)  # the list + what the real render added: the one number on the page
     host = urlparse.urlsplit(report["final_url"]).hostname or report["final_url"]
     cards = []
     for name, text in files.items():
@@ -443,22 +445,24 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
                      + "</div>")
     proof = ""
     if n > 3:
-        k = next((i for i in range(3, n) if fix[i]["area"] != "security"), 3)  # a visible fix beats a header
+        order = sorted(range(3, n), key=lambda i: (fix[i]["area"] != "phone" or fix[i]["rule"] == "phone-images",
+                                                    fix[i]["area"] == "security", i))
+        k = order[0]  # the most visible fix is the best proof
         f4 = fix[k]
-        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of <span class="lc-n">{n}</span>, unlocked as a sample</div>'
+        proof = (f'<div class="fp-next"><div class="fp-fn">Problem #{k + 1} of <span class="lc-n">{total}</span>, unlocked as a sample</div>'
                  f'<p><b>{esc(scanner.lc.short(f4["title"], 160))}</b></p><p>{esc(f4["fix"])}</p>'
-                 + (f'<div class="fp-more">+{n - 4} more problem{"s" if n - 4 != 1 else ""} like this in the pack</div>'
-                    if n > 4 else "") + "</div>")
+                 + (f'<div class="fp-more">+{total - 4} more problem{"s" if total - 4 != 1 else ""} like this in the pack</div>'
+                    if total > 4 else "") + "</div>")
     thumbs = ('<div class="fp-thumbs" aria-hidden="true"><div class="fp-t fp-ph"></div><div class="fp-t fp-tab"></div>'
               '<div class="fp-t fp-desk"></div></div><div class="fp-tl">Phone · tablet · desktop renders, every problem '
               'boxed</div>')
     first = esc(steps[0]) if steps else ""
     prompt = (f'<div class="fp-prompt"><div class="fp-fn">One fix prompt for Lovable, Bolt, Cursor or Claude Code '
-              f'<span>(all <span class="lc-n">{n}</span> problems + where each file goes)</span></div><pre>1. {first}</pre>'
+              f'<span>(all <span class="lc-n">{total}</span> problems + where each file goes)</span></div><pre>1. {first}</pre>'
               + (f'<pre class="fp-blur" aria-hidden="true">{_blur_lines(min(len(steps) - 1, 5))}</pre>'
                  if len(steps) > 1 else "") + "</div>")
     if CHECKOUT_ON:
-        label = f'Get all <span class="lc-n">{n}</span> fixes' if n > 3 else "Get my Fix Pack: files + renders"
+        label = f'Get all <span class="lc-n">{total}</span> fixes' if total > 3 else "Get my Fix Pack: files + renders"
         button = (f'<form method="post" action="/buy/{esc(job_id)}"><button class="fp-buy" type="submit">{label} '
                   f'— {PRICE} <s>{PRICE_WAS}</s></button></form>'
                   '<div class="fp-terms">One-time · instant download · re-scan free for 7 days · refund if it doesn\'t '
@@ -471,8 +475,8 @@ def locked_preview(report: dict, job_id: str, phone_more: int | None, base_url: 
         button = ('<a class="fp-buy" href="/fix/demo">See a sample Fix Pack</a>'
                   f'<div class="fp-terms">Checkout opens soon · launch price {PRICE} <s>{PRICE_WAS}</s> · one-time · '
                   'instant download · re-scan free for 7 days · refund if it doesn\'t help</div>')
-    sub = (f"{n} problems found: 3 free above, all {n} fixed here, plus the files your site is missing."
-           if n > 3 else "Generated for your site: the files, the renders and the prompt.")
+    sub = (f"{total} problems found: {min(3, n)} free above, all {total} fixed here, plus the files your site is missing."
+           if total > 3 else "Generated for your site: the files, the renders and the prompt.")
     return (f'<section class="fp" id="lc-fp"><h2>Your Fix Pack for {esc(host)}</h2><p class="fp-sub" id="fp-sub">{esc(sub)} Locked until '
             f'checkout.</p>{proof}<div class="fp-files">{"".join(cards)}</div>{thumbs}{prompt}<div class="fp-cta">'
             f'{proof_line()}{button}</div></section>')

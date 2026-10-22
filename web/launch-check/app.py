@@ -60,7 +60,7 @@ STATS = {"since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "totals": 
 RATE_MAX, RATE_WINDOW = 10, 600         # scans per IP per 10 minutes
 CONCURRENCY = threading.BoundedSemaphore(2)
 QUEUE_WAIT = 40                         # seconds a scan may wait for a free scanner
-JOB_TTL = 600                           # finished reports live in memory this long
+JOB_TTL = 6 * 3600                      # finished reports stay in memory this long (oldest evicted when full)
 JOB_MAX = 300
 STUCK_AFTER = scanner.BUDGET + 40       # a job still running after this is reported as failed
 MAX_BODY = 4096
@@ -586,7 +586,7 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
     "phone-clipped": "Some of your words got cut off. They had so much to say.",
     "phone-layout-shift": "Your page jumps while it loads. Visitors tap the wrong thing and leave.",
     "phone-images": "Your images have no labels. Screen readers just say 'image, image, image'.",
-    "phone-headings": "Your headings wander off with nothing under them.",
+    "phone-headings": "Your headings skip levels. Screen readers get lost, and so does Google.",
     "search-sitemap-missing": "No sitemap. Google is touring your site blindfolded.",
     "search-og-missing": "Share your link and the preview is a blank box. Mystery marketing.",
     "og-image-missing": "Share your link and the preview has no picture. Nobody clicks a grey box.",
@@ -625,35 +625,62 @@ ROAST = {  # one true, funny line per problem: every burn is a finding on the pa
 }
 
 
+def fact_line(rule, title, detail):
+    """A burn built from this site's own numbers, when the finding carries them."""
+    t = f"{title} {detail}"
+    if rule == "phone-tap-target":
+        m = re.search(r"(\d+)x(\d+) px", t)
+        if m:
+            return f"Your buttons are {min(int(m.group(1)), int(m.group(2)))} px across at the thin end. Thumbs need 44."
+    if rule == "phone-contrast":
+        m = re.search(r"(\d+(?:\.\d+)?):1", t)
+        if m:
+            return f"Some text sits at {m.group(1)}:1 contrast. Readable starts at 4.5. Squinting is not a feature."
+    if rule == "heavy-js":
+        m = re.search(r"(\d[\d,]*) KB", t)
+        if m:
+            return f"{m.group(1)} KB of JavaScript before anything works. The phone needs a coffee break."
+    if rule in ("phone-fixed-width", "phone-overflow"):
+        m = re.search(r"\((\d+) places\)", t)
+        if m:
+            return f"{m.group(1)} parts of your page refuse to fit on a phone."
+    return ""
+
+
 def roast_lines(items):
-    """items = [(rule, title)] in list order -> up to 3 burns (titles as plain fallback) + a verdict line."""
+    """items = [(rule, title[, detail])] in list order -> up to 3 burns, each one a real finding (own numbers first)."""
     burns = []
-    for rule, title in items:
-        line = ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
-        if not line:
+    for item in items:
+        rule, title, detail = (tuple(item) + ("",))[:3]
+        line = fact_line(rule, title, detail) or ROAST.get(rule) or (f"{title}." if title and len(burns) < 1 else "")
+        if not line or any(line.split(".")[0] == b.split(".")[0] for b in burns):
             continue
-        if line not in burns:
-            burns.append(line)
+        burns.append(line)
         if len(burns) == 3:
             break
     return burns
 
 
-def roast_verdict(score):
-    if score >= 90:
-        return "Annoyingly good. We tried."
-    if score >= 75:
-        return "Not bad. Not launch-ready either."
-    if score >= 55:
-        return "Ship it? After these."
-    return "We need to talk before you launch."
+VERDICTS = {90: ("Annoyingly good. We tried.", "Hard to roast. We found a few crumbs.", "Clean. Mostly. Here's what's left."),
+            75: ("Looks fine on a laptop. Your phone visitors disagree.", "Close, but a phone tells a different story.",
+                 "Good bones. The phone version needs an intervention."),
+            55: ("Ship it? After these.", "Your phone visitors would notice these first.",
+                 "Fixable in an afternoon. Ignored, it costs signups."),
+            0: ("We need to talk before you launch.", "Your phone visitors are having a rough time.",
+                "This needs a pass before anyone sees it.")}
+
+
+def roast_verdict(score, host=""):
+    band = next(b for b in (90, 75, 55, 0) if score >= b)
+    return VERDICTS[band][(sum(map(ord, host)) + score) % 3]
 
 
 def roast_items(report, phone=None):
     """Burn order shared by the page and the card: the boxed problems first, then the problem list."""
-    items = [(f["rule"], scanner.lc.short(f["title"], 90)) for f in other_items(report)]
+    items = [(f["rule"], scanner.lc.short(f["title"], 90), f.get("detail", "")) for f in other_items(report)]
     if phone and phone.get("jpg"):
-        items = [("phone-" + x.get("key", ""), "") for x in (phone.get("stats") or {}).get("legend") or []] + items
+        items = [("phone-" + x.get("key", ""), "", x.get("detail", ""))
+                 for x in (phone.get("stats") or {}).get("legend") or []] + items
     return items
 
 
@@ -666,7 +693,7 @@ def roast_card(report, job_id, phone=None, n_all=None):
     page_url = f"{SITE}/r/{job_id}"
     tweet = urlparse.quote(f"I got my site roasted: {report['score']}/100. {burns[0] if burns else ''} {page_url}")
     return (f'<section class="lc-roast"><div class="rk">ROASTED · {esc(host)}</div><div class="rs">{report["score"]}'
-            f'<span>/100</span></div><p class="rv">{esc(roast_verdict(report["score"]))}</p><ol>{lis}</ol>'
+            f'<span>/100</span></div><p class="rv">{esc(roast_verdict(report["score"], host))}</p><ol>{lis}</ol>'
             f'<div class="rsh"><a class="rb" href="https://x.com/intent/post?text={tweet}" rel="noopener" '
             f'target="_blank">Share your roast</a> <a class="rb" href="/share/{esc(job_id)}.png?roast=1" '
             f'rel="noopener">Roast card image</a> <span>Every burn is a real problem.</span></div>'
@@ -860,14 +887,15 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}</li>" for f in fix[:3])
+    total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
-            f'{f" of {n}" if n > 3 else ""}</h2><ol>{top3}</ol>'
+            f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
             f'<div class="ask"><div class="h">Free: paste this to your AI</div><button id="lc-copy" type="button">Copy for '
             f'your AI</button><pre id="p">{esc(prompt)}</pre></div><p class="lc-nc">Not checked in the free scan: tablet '
             f'and desktop renders, hover states, re-scoring after fixes.</p></section>' if n else
             '<section class="lc-top3"><h2>No problems worth fixing before launch</h2></section>')
     counts = phone_counts(phone_stats) if phone_state == "done" else {}
-    preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False)
+    preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False, n_all=total)
     slot = phone_slot(report, job_id, phone_state, phone_stats)
     then = ""
     share_meta = ""
@@ -949,6 +977,11 @@ def rate_ok(ip, now=None):
 def _prune(now):
     for k in [k for k, j in JOBS.items() if now - j["t"] > JOB_TTL and j.get("keep_until", 0) < now]:
         JOBS.pop(k, None)
+    if len(JOBS) >= JOB_MAX:  # full: drop the oldest finished reports (their links re-check when opened)
+        old = sorted((j["t"], k) for k, j in JOBS.items() if j.get("state") in ("done", "error")
+                     and j.get("keep_until", 0) < now)
+        for _, k in old[: len(JOBS) - JOB_MAX + 20]:
+            JOBS.pop(k, None)
 
 
 def start_job(url, v, src="", job_id=None, keep=False, keys=True):
@@ -1345,10 +1378,12 @@ class Handler(BaseHTTPRequestHandler):
                     items = roast_items(job["report"], ph)
                 elif jpg:
                     items = [("phone-" + x.get("key", ""), "") for x in (ph.get("stats") or {}).get("legend") or []] + items
+                if not jpg and job and job.get("report") and ph.get("state", "none") == "none":
+                    start_phone(job, job["report"])  # a card without its phone picture: render it for the next fetch
                 png = roast_png(host, now, roast_lines(items), jpg)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
-                return self.send(200, png, "image/png", cache="public, max-age=600")
+                return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")
             png = share_png(host, int(b), now) if b.isdigit() and int(b) <= 100 and now is not None else None
             if not png:
                 return self.send(404, "not found", "text/plain; charset=utf-8")
