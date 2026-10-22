@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import time
 from urllib import parse as urlparse
 
@@ -81,6 +82,13 @@ def locked_page(nonce, message="This Fix Pack is locked"):
     return _doc("Fix Pack | Launch Check", body, nonce)
 
 
+def with_bg(f):
+    """Contrast fixes name the background they were measured on."""
+    fix = f.get("fix", "")
+    m = re.search(r" on (#[0-9a-fA-F]{3,8})", f.get("detail", "")) if f.get("check") == "contrast" else None
+    return f"{fix} (on background {m.group(1)})" if m and "background" not in fix else fix
+
+
 def pack_page(report, pack, scan_id, token, nonce, demo, dfy=False):
     host = "FlowPilot (demo page)" if demo else (urlparse.urlsplit(report["final_url"]).hostname or report["final_url"])
     q = f"?token={token}" if token else ""
@@ -101,7 +109,7 @@ def pack_page(report, pack, scan_id, token, nonce, demo, dfy=False):
     marks = ""
     if pack.get("render"):
         items = [f'<li><b>#{f.get("rank")}</b>{esc(scanner.lc.short(f.get("detail", ""), 120))} <span>→ '
-                 f'{esc(f.get("fix", ""))}</span></li>' for f in pack["render"].get("findings", [])[:40] if f.get("rank")]
+                 f'{esc(with_bg(f))}</span></li>' for f in pack["render"].get("findings", [])[:40] if f.get("rank")]
         marks = f'<ol class="marks">{"".join(items)}</ol>'
     shots = (f'<div class="card"><h2>Every problem, boxed</h2><div class="shots">{"".join(figs)}</div>{marks}</div>'
              if figs else '<div class="card"><h2>Renders</h2><p>The renders could not be made this time; open the '

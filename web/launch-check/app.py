@@ -935,8 +935,9 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
     doc = scanner.render({**report, "findings": [], "fix_first": []})
     prompt = fix_prompt(report, v, src)
     top3 = "".join(f"<li>{esc(scanner.lc.short(f['title'], 140))}"
-                   + (f'<small class="lc-fx">{esc(fix_with_background(f)[:260])}</small>'
-                      if f.get("fix") else "") + "</li>" for f in fix[:3])
+                   + (f'<small class="lc-fx">{esc(fix_with_background(f)[:260])}</small>' if i == 0 and f.get("fix")
+                      else '<small class="lc-fx">exact fix in your Fix Pack</small>' if f.get("fix") else "") + "</li>"
+                   for i, f in enumerate(fix[:3]))
     total = n + (phone_counts(phone_stats).get("extra", 0) if phone_state == "done" else 0)  # one number, also on reload
     free = (f'<section class="lc-top3"><h2 id="lc-t3h" data-shown="{min(3, n)}">Top {min(3, n)} problems'
             f'{f" of {total}" if total > min(3, n) else ""}</h2><ol>{top3}</ol>'
@@ -980,9 +981,12 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
                       'type="image/svg+xml">' + share_meta + '</head><body>' + top, 1)
     doc = re.sub(r'<section class="hero">.*?(?=<div class="foot">)', lambda _m: first, doc, count=1, flags=re.S)
     doc = doc.replace("A good score is not a security audit.</div>",
-                      "A good score is not a security audit. Phone findings are measured in a real phone browser (375 px, 1 screen "
-                      "size); the phone screenshot is a real browser render. This page link works for 14 days: opening it later "
-                      "re-checks your site, so it always shows today's result."
+                      "A good score is not a security audit. " + (
+                          "Phone findings are measured in a real phone browser (375 px, 1 screen size) and the screenshot is "
+                          "that render. " if report.get("phone_measured") else
+                          "The phone render didn't finish, so phone findings are only what the page code shows (viewport tag, "
+                          "image sizes). ") + "This page link works for 14 days: opening it later re-checks your site, so it "
+                      "always shows today's result."
                       + "".join(f"<br>Note: {esc(x)}" for x in report.get("notes", [])[:4]) + "</div>", 1)
     tail = "</div></body></html>"
     if doc.endswith(tail):
@@ -1227,7 +1231,7 @@ def _font(size):
     return ImageFont.load_default(size=size)
 
 
-def roast_png(host, score, burns, phone_jpg=None):
+def roast_png(host, score, burns, phone_jpg=None, title="ROASTED"):
     """1200x630 roast card: the boxed phone render on the left, score and the first burns on the right."""
     try:
         from PIL import Image, ImageDraw
@@ -1248,7 +1252,7 @@ def roast_png(host, score, burns, phone_jpg=None):
             x = 60 + frame.width + 50
         except Exception:  # a broken render never breaks the card
             x = 70
-    d.text((x, 60), f"ROASTED · {host[:30]}", font=_font(30), fill=(251, 146, 60))
+    d.text((x, 60), f"{title} · {host[:30]}", font=_font(30), fill=(251, 146, 60))
     d.text((x, 105), f"{score}", font=_font(130), fill=(248, 113, 113) if score < 75 else (250, 204, 21))
     d.text((x + (90 if score < 10 else 170 if score < 100 else 250), 175), "/100", font=_font(40), fill=(148, 163, 184))
     y = 270
@@ -1518,9 +1522,11 @@ class Handler(BaseHTTPRequestHandler):
                 # no picture, no roast: the card says ON HOLD, with no score and no burns, like the page
                 bh = urlparse.urlsplit(((job or {}).get("report") or {}).get("final_url", "")).hostname or host
                 lines = roast_lines(items, bh)
-                if jpg and len(lines) < 2:
-                    lines = ["Passes on a phone: at most one thing worth boxing."] + lines
-                png = roast_png(host, now, lines, jpg) if jpg else roast_hold_png(host)  # page's wording
+                passes = jpg and len(lines) < 2
+                if passes:
+                    lines = ["Hard to roast: at most one thing worth boxing."] + lines
+                png = (roast_png(host, now, lines, jpg, "PASSES ON A PHONE" if passes else "ROASTED") if jpg
+                       else roast_hold_png(host))  # same verdict and wording as the page
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")
