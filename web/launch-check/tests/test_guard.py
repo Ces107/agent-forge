@@ -593,7 +593,7 @@ class Roast(unittest.TestCase):
         rep = {**REPORT, "findings": [_f("phone", "MEDIUM", "Some buttons are too small", "phone-tap-target")]}
         self.assertIn("ROAST ON HOLD", app.roast_card(rep, "J" * 24))  # no picture, no roast
         one = {"jpg": b"x", "stats": {"legend": [{"n": 1, "key": "tap-target", "detail": "tap target 100x16 px"}]}}
-        self.assertIn("PASSES ON A PHONE", app.roast_card(rep, "J" * 24, one))  # one failure: no roast, no sale
+        self.assertIn("ONE THING TO FIX ON A PHONE", app.roast_card(rep, "J" * 24, one))  # one box: a fix, not a roast
         two = {"jpg": b"x", "stats": {"legend": one["stats"]["legend"] + [
             {"n": 2, "key": "contrast", "detail": "contrast 2.10:1 (needs 4.5) #999 on #fff"}]}}
         card = app.roast_card(rep, "J" * 24, two)

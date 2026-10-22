@@ -735,12 +735,15 @@ def roast_card(report, job_id, phone=None, n_all=None):
     burns = roast_lines(roast_items(report, phone), urlparse.urlsplit(report["final_url"]).hostname or "")
     legend = ((phone or {}).get("stats") or {}).get("legend") or []
     boxes = len(legend)
-    severe = any(x.get("sev") == "HIGH" for x in legend)  # a boxed high-severity break is never a "pass"
-    if (boxes < 2 and not severe) or not burns:  # fewer than two boxed failures: it passes, no roast and no sale
+    if boxes < 2 or len(burns) < 2:  # a roast needs two boxed problems; one is a fix, none is a pass
         host = urlparse.urlsplit(report["final_url"]).hostname or ""
+        if boxes and burns:
+            return (f'<section class="lc-roast"><div class="rk">ONE THING TO FIX ON A PHONE · {esc(host)}</div>'
+                    f'<div class="rs">{report["score"]}<span>/100</span></div><ol><li>{esc(burns[0])}</li></ol>'
+                    f'<p class="rv">Everything else we could box on a phone looks fine.</p></section>')
         return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div><div class="rs">'
-                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: '
-                f'{"nothing" if not boxes else "only one thing"} worth boxing on a phone.</p></section>')
+                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: nothing worth boxing on a '
+                f'phone.</p></section>')
     n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
@@ -846,7 +849,7 @@ def phone_slot(report, job_id, state, stats=None):
     counts = phone_counts(stats)
     n = len(other_items(report))
     lg = (stats or {}).get("legend") or []
-    passes = state == "done" and len(lg) < 2 and not any(x.get("sev") == "HIGH" for x in lg)  # no pitch on a pass
+    passes = state == "done" and not lg  # no pitch when nothing is boxed
     legend = "".join(f'<li><b>#{x["n"]}</b> {esc(x["title"])}'
                      + (' <span class="lc-inpk">in your Fix Pack</span>' if x["n"] > 3 or x["x"] else "") + '</li>'
                      for x in counts.get("legend", []))
@@ -1555,11 +1558,11 @@ class Handler(BaseHTTPRequestHandler):
                 lines = roast_lines(items, bh)
                 lg = (ph.get("stats") or {}).get("legend") or []
                 nbox = len(lg)
-                passes = jpg and ((nbox < 2 and not any(x.get("sev") == "HIGH" for x in lg)) or not lines)
-                if passes:
-                    lines = ["Hard to roast: " + ("nothing" if not nbox else "only one thing") + " worth boxing on a phone."]
-                png = (roast_png(host, now, lines, jpg, "PASSES ON A PHONE" if passes else "ROASTED") if jpg
-                       else roast_hold_png(host))  # same verdict and wording as the page
+                title = "ROASTED"  # same verdict and wording as the page
+                if nbox < 2 or len(lines) < 2:
+                    title = "ONE THING TO FIX ON A PHONE" if nbox and lines else "PASSES ON A PHONE"
+                    lines = lines[:1] if nbox and lines else ["Hard to roast: nothing worth boxing on a phone."]
+                png = roast_png(host, now, lines, jpg, title) if jpg else roast_hold_png(host)
                 if not png:
                     return self.send(404, "not found", "text/plain; charset=utf-8")
                 return self.send(200, png, "image/png", cache="public, max-age=600" if jpg else "public, max-age=60")

@@ -332,11 +332,16 @@ def _browser_through_guard(module):
             if pick:  # the same screen with one boxed fix applied (contrast first: the most visible): free before/after
                 try:
                     page.evaluate("() => { const l = document.getElementById('__pa_layer'); if (l) l.remove(); }")
-                    pboxes = [m["box"] for m in marks if m.get("label") == "#%d" % pick["n"]]
-                    if page.evaluate(APPLY_JS, {"sel": pick["sel"], "css": fix_css(pick), "boxes": pboxes}):
+                    done = 0
+                    for x in legend:  # every boxed contrast fix at once: the after image shows the whole improvement
+                        if x.get("key") == "contrast" and x.get("sel") and fix_css(x):
+                            xb = [m["box"] for m in marks if m.get("label") == "#%d" % x["n"]]
+                            done += page.evaluate(APPLY_JS, {"sel": x["sel"], "css": fix_css(x), "boxes": xb}) or 0
+                    if done:
                         page.wait_for_timeout(120)
                         fixed = [{"box": m["box"], "label": "", "color": "#16a34a"}  # outline only: nothing covers the fix
-                                 for m in marks if m.get("label") == "#%d" % pick["n"]]
+                                 for x in legend if x.get("key") == "contrast"
+                                 for m in marks if m.get("label") == "#%d" % x["n"]]
                         if fixed:
                             page.evaluate(module.ANNOTATE_JS, fixed)
                         state["after_n"] = pick["n"]
