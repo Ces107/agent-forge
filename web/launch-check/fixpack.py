@@ -62,7 +62,12 @@ def fix_link(scan_id: str) -> str:
 POLAR_SERVER = os.environ.get("POLAR_SERVER", "sandbox").strip().lower()
 POLAR_WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "")
 PAY_SECRET = os.environ.get("PAY_SECRET") or secrets.token_hex(32)  # tokens die with the process if unset
-CHECKOUT_ON = PAY_PROVIDER == "polar" and bool(POLAR_TOKEN and POLAR_PRODUCT and os.environ.get("PAY_SECRET"))
+# Stripe (no approval wait): a Payment Link whose after-payment redirect is <SITE>/paid?session_id={CHECKOUT_SESSION_ID};
+# the scan id travels as client_reference_id and the session is verified with the secret key before unlocking.
+STRIPE_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_LINK = os.environ.get("STRIPE_PACK_LINK", "")
+STRIPE_ON = PAY_PROVIDER == "stripe" and bool(STRIPE_KEY and STRIPE_LINK and os.environ.get("PAY_SECRET"))
+CHECKOUT_ON = STRIPE_ON or (PAY_PROVIDER == "polar" and bool(POLAR_TOKEN and POLAR_PRODUCT and os.environ.get("PAY_SECRET")))
 PACK_DAYS = 7
 RENDER_WIDTHS = (375, 768, 1440)
 SHOT_NAMES = {375: "phone-375.jpg", 768: "tablet-768.jpg", 1440: "desktop-1440.jpg"}
@@ -368,6 +373,25 @@ def build_pack(report: dict, rescan_url: str) -> dict:
             "render": render, "zip": buf.getvalue(), "zip_name": f"fix-pack-{host}.zip", "built": time.time(),
             "zip_listing": sorted(["README.txt", "FIX-PROMPT.txt", "FINDINGS.txt"] + list(files)
                                   + ["screenshots/" + SHOT_NAMES[w] for w in shots])}
+
+
+# ------------------------------------------------------------------------------------------------ Stripe
+def stripe_checkout_url(scan_id: str) -> str:
+    sep = "&" if "?" in STRIPE_LINK else "?"
+    return f"{STRIPE_LINK}{sep}client_reference_id={urlparse.quote(scan_id)}"
+
+
+def stripe_paid_scan(session_id: str) -> str:
+    """The scan id of a paid, complete Checkout Session, else ''."""
+    if not re.fullmatch(r"cs_(test|live)_[A-Za-z0-9]{10,200}", session_id or ""):
+        return ""
+    req = urllib.request.Request(f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                                 headers={"Authorization": "Basic " + base64.b64encode((STRIPE_KEY + ":").encode()).decode()})
+    with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 - fixed https host
+        data = json.loads(resp.read(1_000_000))
+    if data.get("payment_status") != "paid" or data.get("status") != "complete":
+        return ""
+    return str(data.get("client_reference_id") or "")
 
 
 # ------------------------------------------------------------------------------------------------ Polar

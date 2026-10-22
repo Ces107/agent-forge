@@ -325,6 +325,12 @@ def _mark(img, ground):
     ld.rounded_rectangle((x0, y0, x0 + pw, y0 + ph), radius=ph // 2,
                          fill=(_mix(ground, ink, 0.12) + (200,)))
     ld.text((x0 + pw // 2, y0 + ph // 2), text, font=f, fill=ink + (190,), anchor="mm")
+    # the free preview is for checking the look; a faint diagonal PREVIEW keeps the clean card for the $2 pack
+    big = _font(150, bold=True)
+    tile = Image.new("RGBA", (900, 220), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text((450, 110), "PREVIEW", font=big, fill=ink + (38,), anchor="mm")
+    tile = tile.rotate(18, expand=True)
+    layer.alpha_composite(tile, ((img.width - tile.width) // 2, (img.height - tile.height) // 2))
     img.alpha_composite(layer)
 
 

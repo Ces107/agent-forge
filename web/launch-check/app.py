@@ -1475,6 +1475,21 @@ class Handler(BaseHTTPRequestHandler):
             keys = (urlparse.parse_qs(parts.query).get("k") or ["1"])[0] != "0"  # k=0: a link made for someone else
             return self.send(200, page(n, "roast", url_value=pre, src=src, autostart=bool(pre), keys=keys), nonce=n,
                              cache="no-cache")
+        if path == "/paid" and fixpack.STRIPE_ON:  # Stripe Payment Link comes back here: verify, unlock, open the pack
+            n = secrets.token_urlsafe(16)
+            sid_q = (urlparse.parse_qs(parts.query).get("session_id") or [""])[0]
+            try:
+                scan_id = fixpack.stripe_paid_scan(sid_q)
+            except Exception:  # Stripe unreachable: the buyer reloads
+                scan_id = ""
+            url = (JOBS.get(scan_id) or {}).get("url") or (RESULTS.get(scan_id) or {}).get("url") if scan_id else ""
+            if not (scan_id and url):
+                return self.send(402, page(n, error="We couldn't confirm the payment yet. Reload this page in a minute; "
+                                                    "if it still fails, reply to your Stripe receipt and we'll fix it."),
+                                 nonce=n)
+            mark_paid(scan_id, url)
+            count("checkout_paid", (JOBS.get(scan_id) or {}).get("v", "dev"), "")
+            return self.send(303, "", extra={"Location": f"/fix/{scan_id}?token={fixpack.token_for(scan_id)}"})
         if path == "/healthz":
             return self.send(200, "ok", "text/plain; charset=utf-8")
         m = re.fullmatch(r"/r/([A-Za-z0-9_-]+)(/status|/phone|/phone\.jpg|/after\.jpg)?", path)
@@ -1739,7 +1754,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, page(n, error="This result has expired. Check your site again."), nonce=n)
             try:
                 tier = (urlparse.parse_qs(parts.query).get("tier") or ["pack"])[0]
-                url = fixpack.polar_checkout_url(buy.group(1), SITE, "dfy" if tier == "dfy" and fixpack.dfy_on() else "pack")
+                url = (fixpack.stripe_checkout_url(buy.group(1)) if fixpack.STRIPE_ON else
+                       fixpack.polar_checkout_url(buy.group(1), SITE, "dfy" if tier == "dfy" and fixpack.dfy_on() else "pack"))
             except Exception:  # Polar unreachable
                 n = secrets.token_urlsafe(16)
                 return self.send(502, page(n, error="Checkout is not reachable right now. Try again in a minute."),

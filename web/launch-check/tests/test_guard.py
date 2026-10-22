@@ -658,6 +658,37 @@ class Challenge(unittest.TestCase):
         self.assertFalse(scan.is_challenge(page))  # a real page with a contact-form captcha is a real page
 
 
+class StripeCheckout(unittest.TestCase):
+    def test_paid_return_verifies_then_unlocks(self):
+        sid = "P" * 24
+        app.RESULTS[sid] = {"id": sid, "url": "https://a.com", "final": "https://a.com/", "t": time.time(), "score": 70,
+                            "key": "ok", "keys": [], "top3": [], "n": 0, "v": "dev"}
+        real = (fixpack.STRIPE_ON, fixpack.stripe_paid_scan, fixpack.STRIPE_LINK)
+        fixpack.STRIPE_ON, fixpack.STRIPE_LINK = True, "https://buy.stripe.com/test_x"
+        fixpack.stripe_paid_scan = lambda s: sid if s == "cs_test_" + "a" * 20 else ""
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        guard._EXTRA_ALLOWED.add(("127.0.0.1", srv.server_port))
+        try:
+            def get(path):
+                c = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=5)
+                c.request("GET", path)
+                r = c.getresponse()
+                return r.status, r.getheader("Location")
+            self.assertEqual(get("/paid?session_id=cs_test_" + "b" * 20)[0], 402)   # not paid: nothing unlocks
+            st, loc = get("/paid?session_id=cs_test_" + "a" * 20)
+            self.assertEqual(st, 303)
+            self.assertTrue(loc.startswith(f"/fix/{sid}?token="))
+            self.assertIn(sid, app.PAID)
+            self.assertEqual(fixpack.stripe_checkout_url(sid), f"https://buy.stripe.com/test_x?client_reference_id={sid}")
+        finally:
+            fixpack.STRIPE_ON, fixpack.stripe_paid_scan, fixpack.STRIPE_LINK = real
+            app.RESULTS.pop(sid, None)
+            app.PAID.pop(sid, None)
+            guard._EXTRA_ALLOWED.discard(("127.0.0.1", srv.server_port))
+            srv.shutdown()
+
+
 class StatsHistory(unittest.TestCase):
     def test_parse_event_lines(self):
         self.assertEqual(app.parse_event('LC_EVENT {"e":"click:kit","v":"launch","src":"x","t":1}'),
