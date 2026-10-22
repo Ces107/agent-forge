@@ -128,12 +128,26 @@ APPLY_JS = r"""(a) => {
 }"""
 
 
+def changed(png_a, png_b, min_pixels=600):
+    """True when the two unmarked screenshots differ visibly (not just a green outline)."""
+    try:
+        import io
+        from PIL import Image, ImageChops
+        a, b = (Image.open(io.BytesIO(x)).convert("L") for x in (png_a, png_b))
+        if a.size != b.size:
+            return True
+        return sum(1 for v in ImageChops.difference(a, b).getdata() if v > 24) >= min_pixels
+    except Exception:  # can't compare: keep it
+        return True
+
+
 def fix_css(item):
     """The CSS a free fix stands for, applied to the boxed element for the before/after."""
     fix, key = item.get("fix", ""), item.get("key", "")
     m = re.search(r"use color: (#[0-9a-fA-F]{3,8})", fix) or re.search(r"color: #[0-9a-fA-F]{3,8} -> (#[0-9a-fA-F]{3,8})", fix)
-    if key == "contrast" and m:
-        return "opacity: 1 !important; color: %s !important" % m.group(1)
+    if key == "contrast" and m:  # exactly what the free fix says: opacity only when the fix names it
+        op = "opacity: 1 !important; " if "opacity" in fix else ""
+        return "%scolor: %s !important" % (op, m.group(1))
     m = re.search(r"background #[0-9a-fA-F]{3,8} -> (#[0-9a-fA-F]{3,8})", fix)
     if key == "contrast" and m:
         return "background: %s !important" % m.group(1)
@@ -332,6 +346,8 @@ def _browser_through_guard(module):
             if pick:  # the same screen with one boxed fix applied (contrast first: the most visible): free before/after
                 try:
                     page.evaluate("() => { const l = document.getElementById('__pa_layer'); if (l) l.remove(); }")
+                    clip = {"x": 0, "y": y0, "width": width, "height": clip_h}
+                    plain = page.screenshot(type="png", clip=clip, full_page=True)  # unmarked, before the fixes
                     done = 0
                     for x in legend:  # every boxed contrast fix at once: the after image shows the whole improvement
                         if x.get("key") == "contrast" and x.get("sel") and fix_css(x):
@@ -339,6 +355,8 @@ def _browser_through_guard(module):
                             done += page.evaluate(APPLY_JS, {"sel": x["sel"], "css": fix_css(x), "boxes": xb}) or 0
                     if done:
                         page.wait_for_timeout(120)
+                        if not changed(plain, page.screenshot(type="png", clip=clip, full_page=True)):
+                            raise ValueError("fix not visible")  # a before/after you can't see is not shown
                         fixed = [{"box": m["box"], "label": "", "color": "#16a34a"}  # outline only: nothing covers the fix
                                  for x in legend if x.get("key") == "contrast"
                                  for m in marks if m.get("label") == "#%d" % x["n"]]

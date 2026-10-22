@@ -741,9 +741,8 @@ def roast_card(report, job_id, phone=None, n_all=None):
             return (f'<section class="lc-roast"><div class="rk">ONE THING TO FIX ON A PHONE · {esc(host)}</div>'
                     f'<div class="rs">{report["score"]}<span>/100</span></div><ol><li>{esc(burns[0])}</li></ol>'
                     f'<p class="rv">Everything else we could box on a phone looks fine.</p></section>')
-        return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div><div class="rs">'
-                f'{report["score"]}<span>/100</span></div><p class="rv">Hard to roast: nothing worth boxing on a '
-                f'phone.</p></section>')
+        return (f'<section class="lc-roast"><div class="rk">PASSES ON A PHONE · {esc(host)}</div>'
+                f'<p class="rv">Hard to roast: nothing worth boxing on a phone.</p></section>')
     n_all = n_all or len(fix)
     host = urlparse.urlsplit(report["final_url"]).hostname or ""
     lis = "".join(f"<li>{esc(b)}</li>" for b in burns) or "<li>We looked hard. Nothing to roast. Rude.</li>"
@@ -973,7 +972,12 @@ def result_page(report, nonce, v="dev", src="", job_id=None, phone_state=None, p
             f'and desktop renders, hover states, re-scoring after fixes.</p></section>' if n else
             '<section class="lc-top3"><h2>No problems worth fixing before launch</h2></section>')
     counts = phone_counts(phone_stats) if phone_state == "done" else {}
-    preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False, n_all=total)
+    if phone_state == "done" and not (phone_stats or {}).get("legend"):  # a pass: no pack pitch, one quiet line
+        preview = (f'<section class="lc-top3" id="lc-fp"><p class="lc-nc">Your site passes on a phone. The {n} smaller '
+                   f'items above have their exact fixes and files in the <a href="/fix/demo">Fix Pack</a> ($9), if you '
+                   f'want them.</p></section>')
+    else:
+        preview = fixpack.locked_preview(report, job_id or "", counts.get("more"), SITE, demo=False, n_all=total)
     slot = phone_slot(report, job_id, phone_state, phone_stats)
     then = ""
     share_meta = ""
