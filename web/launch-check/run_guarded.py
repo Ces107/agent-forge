@@ -298,15 +298,15 @@ def _browser_through_guard(module):
             page.screenshot(path=str(path), type="jpeg", quality=64,
                             clip={"x": 0, "y": y0, "width": width, "height": clip_h}, full_page=True)
             out[width] = str(path)
-            pick = next((x for x in legend if x.get("key") == "contrast" and x.get("sel") and fix_css(x)),
-                        next((x for x in legend if x.get("sel") and fix_css(x)), None)) if web else None
+            # only a fix you can see makes a before/after (a taller tap target looks the same in a screenshot)
+            pick = next((x for x in legend if x.get("key") == "contrast" and x.get("sel") and fix_css(x)), None) if web else None
             if pick:  # the same screen with one boxed fix applied (contrast first: the most visible): free before/after
                 try:
                     page.evaluate("() => { const l = document.getElementById('__pa_layer'); if (l) l.remove(); }")
                     if page.evaluate(APPLY_JS, {"sel": pick["sel"], "css": fix_css(pick)}):
                         page.wait_for_timeout(120)
-                        fixed = [{"box": m["box"], "label": "#%d fixed" % pick["n"], "color": "#16a34a"}
-                                 for m in marks if m.get("label") == "#%d" % pick["n"]]
+                        fixed = [{"box": m["box"], "label": "#%d fixed" % pick["n"] if i == 0 else "", "color": "#16a34a"}
+                                 for i, m in enumerate(m2 for m2 in marks if m2.get("label") == "#%d" % pick["n"])]
                         if fixed:
                             page.evaluate(module.ANNOTATE_JS, fixed)
                         state["after_n"] = pick["n"]

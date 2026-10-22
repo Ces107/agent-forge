@@ -874,7 +874,11 @@ def before_after(job_id, stats):
     n = stats.get("after_n", 1)
     return (f'<div class="lc-ba"><figure><img src="/r/{job_id}/phone.jpg" alt="Your page now"><figcaption>Now</figcaption>'
             f'</figure><figure><img src="/r/{job_id}/after.jpg" alt="Your page with fix #{n} applied"><figcaption>With fix '
-            f'#{n} applied: <code>{esc(stats.get("after_fix", ""))}</code></figcaption></figure></div>')
+            f'#{n} applied: <code>{esc(stats.get("after_fix", ""))}</code></figcaption></figure>'
+            + (f'<form method="post" action="/buy/{esc(job_id)}" class="lc-bab"><button class="fp-buy fp-sm" type="submit">'
+               f'Get every fix like this — {fixpack.PRICE}</button></form>' if fixpack.CHECKOUT_ON else
+               '<div class="lc-bab"><a class="fp-buy fp-sm" href="/fix/demo">See every fix in a sample pack</a></div>')
+            + '</div>')
 
 
 def summary_of(report, job):
@@ -1016,7 +1020,7 @@ try{{document.execCommand('copy');ok();}}catch(e){{}}document.body.removeChild(a
 RESULT_CSS = """
 .lc-top3{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px 24px;margin:0 0 14px}
 .lc-top3 h2{font-size:20px;margin:0 0 8px}.lc-top3 ol{margin:0 0 12px;padding-left:22px;font-size:16px;font-weight:600}
-.lc-top3 li{margin:4px 0}.lc-ba{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.lc-ba img{width:100%;border:6px solid #0f172a;border-radius:18px}.lc-ba figcaption{font-size:13px;color:#475569}.lc-ba code{font-size:11px;word-break:break-all}.lc-fx{display:block;font-weight:500;font-size:13px;color:#475569;font-family:Consolas,monospace}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
+.lc-top3 li{margin:4px 0}.lc-ba{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.lc-ba img{width:100%;border:6px solid #0f172a;border-radius:18px}.lc-ba figcaption{font-size:13px;color:#475569}.lc-ba code{font-size:11px;word-break:break-all}.lc-bab{grid-column:1/-1;text-align:center}.lc-fx{display:block;font-weight:500;font-size:13px;color:#475569;font-family:Consolas,monospace}.lc-nc{color:#64748b;font-size:13px;margin:10px 0 0}
 .lc-side{margin-top:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:12px 14px}
 .lc-side .lc-more{margin:0 0 10px;color:#14532d}.lc-inpk{font-size:12px;color:#c2410c;font-weight:700}.fp-sm{font-size:16px!important;padding:11px 18px!important}
 .lc-then{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 16px;margin:0 0 14px;font-size:16px}
