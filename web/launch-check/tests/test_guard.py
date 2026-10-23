@@ -328,7 +328,7 @@ class BrowserProxy(unittest.TestCase):
         self.assertIn("See your site on a phone, problems marked. Free.", landing)
         self.assertIn(">See my site on a phone</button>", landing)
         self.assertIn('src="/example-phone.jpg"', landing)
-        self.assertIn("Also checks: leaked API keys", landing)
+        self.assertIn("Secret keys in your code", landing)
         self.assertIn("/go/kit?v=launch&amp;src=x", app.offer_block(REPORT, "launch", "x"))
         self.assertEqual(app.variant("nonsense"), "dev")
 
@@ -890,7 +890,7 @@ class Money(unittest.TestCase):
     def test_new_variants(self):
         self.assertIn("look unfinished", app.page("n", "polish"))
         self.assertIn("ready to launch", app.page("n", "ready"))
-        self.assertIn("Free scan. Fix Pack $9 when you want every fix.", app.page("n", "key"))
+        self.assertIn('<div class="price">$9<', app.page("n", "key"))
         for v in app.VARIANTS:
             self.assertNotIn("agensi", app.page("n", v).lower())
         self.assertIn("f.submit()", app.page("n", "dev", url_value="shipfa.st", autostart=True))
