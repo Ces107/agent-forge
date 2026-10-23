@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scan as scanner  # noqa: E402  (installs the SSRF guard)
 import fixpack  # noqa: E402
 import fixpages  # noqa: E402
+import landing  # noqa: E402
 
 DEMO_ID = "demo"
 DEMO_PATH = "/demo/flowpilot/"
@@ -402,46 +403,31 @@ def shell(inner, nonce, v="dev", extra_head="", script=""):
 
 
 def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=True):
+    """The home page (landing.py): hero with the form, how it works, what it checks, pricing, FAQ."""
     v = variant(v)
     d = copy_for(v)
-    err = f'<div class="err" role="alert">{esc(error)}</div>' if error else ""
-    src_html = f'<div class="src">Source: {esc(d["source"])}</div>' if d["source"] else ""
-    if d.get("example_img"):
-        example = ('<div class="exph"><div class="exl">Example result</div><div class="exphr">'
-                   '<img src="/example-phone.jpg" width="190" height="547" alt="An AI-built landing page at 375 px '
-                   'with its top 3 problems boxed: text under a badge, a cut-off button, low-contrast text">'
-                   '<ol><li><b>#1</b> Text hidden under a badge</li><li><b>#2</b> Button text cut off</li>'
-                   '<li><b>#3</b> Grey text too faint to read</li></ol></div></div>'
-                   '<div class="also">Also checks: leaked API keys · Supabase/Firebase keys · security headers</div>')
-    else:
-        example = (f'<div class="ex{" amber" if d.get("sev") == "MEDIUM" else ""}"><div class="exl">Example result</div>'
-                   f'<div class="exr"><span class="tag">{d.get("sev", "HIGH")}</span><span>{esc(d["ex"])}</span></div>'
-                   f'<div class="exf">{esc(d["fix"])}</div></div>'
-                   '<div class="chips"><span class="chip"><b style="background:#dc2626"></b>Leaked API keys</span>'
-                   '<span class="chip"><b style="background:#d97706"></b>Supabase/Firebase keys</span>'
-                   '<span class="chip"><b style="background:#2563eb"></b>Security headers</span>'
-                   '<span class="more">+ Google &amp; ChatGPT basics</span></div>')
-    inner = f"""<h1>{esc(d["h1"])}</h1>
-{err}<form method="post" action="/check" id="f">
-<input type="text" name="url" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" required
- placeholder="https://your-app.com" value="{esc(url_value)}" aria-label="Your app's address" maxlength="2000">
-<input type="hidden" name="v" value="{v}"><input type="hidden" name="src" value="{esc(clean_src(src))}">{"" if keys else '<input type="hidden" name="k" value="0">'}
-<button type="submit" id="b">{esc(d.get("button", "Check my app — free"))}</button>
-</form>
-<div class="bar" aria-hidden="true"><i></i></div>
-<div class="sub">{esc(d.get("sub", SUB))}</div>
-<div class="trust">Reads only what any visitor's browser downloads · <a href="{GITHUB}">open source</a> · results deleted after 14 days · not a penetration test</div>
-<div class="biz">Free scan. Fix Pack {fixpack.PRICE} when you want every fix.</div>
-{src_html}
-{example}"""
+    body = landing.render(d=d, v=v, url_value=url_value, error=error, src=clean_src(src), keys=keys, github=GITHUB,
+                          price=fixpack.PRICE, price_was=fixpack.PRICE_WAS if fixpack.CHECKOUT_ON else "",
+                          dfy_price=fixpack.DFY_PRICE, dfy_on=bool(fixpack.FIX_URL), stripe_on=fixpack.STRIPE_ON)
     auto = ("var f=document.getElementById('f');if(f.url.value){document.body.classList.add('busy');"
             "document.getElementById('b').textContent='Checking… usually under a minute';f.submit();}") if autostart else ""
     script = f"""<script nonce="{nonce}">
-document.getElementById('f').addEventListener('submit',function(){{var b=document.getElementById('b');
-document.body.classList.add('busy');setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually under a minute';}},0);}});
+document.querySelectorAll('form.lcf').forEach(function(f){{f.addEventListener('submit',function(){{
+var b=f.querySelector('button');document.body.classList.add('busy');
+setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually under a minute';}},0);}});}});
 if('serviceWorker' in navigator){{navigator.serviceWorker.register('/sw.js').catch(function(){{}});}}
 {auto}</script>"""
-    return shell(inner, nonce, v, script=script)
+    h1 = d["h1"]
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
+<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#070b14"><link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preload" href="/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+<meta property="og:title" content="{esc(h1)}"><meta property="og:description" content="{esc(DESC)}">
+<meta property="og:type" content="website"><meta property="og:url" content="{SITE}/">
+<meta property="og:image" content="{SITE}/og.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json" nonce="{nonce}">{{"@context":"https://schema.org","@type":"WebApplication","name":"Launch Check","url":"{SITE}/","applicationCategory":"DeveloperApplication","offers":{{"@type":"Offer","price":"0"}},"description":"{esc(DESC)}"}}</script>
+<style>{landing.CSS}</style></head><body>{body}{script}</body></html>"""
 
 
 def progress_page(job_id, job, nonce):
@@ -1437,7 +1423,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         script = f"'nonce-{nonce}'" if nonce else "'none'"
         self.send_header("Content-Security-Policy", csp or (
-                         f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; "
+                         f"default-src 'none'; script-src {script}; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
                          "connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
                          # a /buy POST redirects to the checkout host: browsers check form redirects against this list
                          "form-action 'self' https://*.polar.sh https://buy.stripe.com https://checkout.stripe.com; "
@@ -1589,6 +1575,9 @@ class Handler(BaseHTTPRequestHandler):
                              extra={"Service-Worker-Allowed": "/"})
         if path in ("/favicon.svg", "/favicon.ico"):
             return self.send(200, FAVICON, "image/svg+xml", cache="public, max-age=86400")
+        if path == "/inter-var.woff2":
+            return self.send(200, (Path(__file__).resolve().parent / "static" / "inter-var.woff2").read_bytes(), "font/woff2",
+                             cache="public, max-age=31536000, immutable")
         if path == "/example-phone.jpg":
             ex = Path(__file__).resolve().parent / "static" / "example-phone.jpg"
             if ex.is_file():
