@@ -385,21 +385,24 @@ def copy_for(v):
     return VARIANTS[ALIASES.get(v, v)]
 
 
-def shell(inner, nonce, v="dev", extra_head="", script=""):
-    h1 = copy_for(v)["h1"]
+def head(nonce, h1, extra_head=""):
+    """<head> shared by the home and progress pages (landing.CSS), ending with <body>."""
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
-<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#0b1220"><link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#070b14"><link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preload" href="/inter-var.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:title" content="{esc(h1)}"><meta property="og:description" content="{esc(DESC)}">
 <meta property="og:type" content="website"><meta property="og:url" content="{SITE}/">
 <meta property="og:image" content="{SITE}/og.png"><meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json" nonce="{nonce}">{{"@context":"https://schema.org","@type":"WebApplication","name":"Launch Check","url":"{SITE}/","applicationCategory":"DeveloperApplication","offers":{{"@type":"Offer","price":"0"}},"description":"{esc(DESC)}"}}</script>
-{extra_head}<style>{CSS}</style></head><body>
-<main class="hero"><div class="in">
-<div class="brand"><img src="/favicon.svg" alt="" width="26" height="26"><span>Launch<i>Check</i></span></div>
-{inner}
-</div></main>{script}</body></html>"""
+{extra_head}<style>{landing.CSS}</style></head><body>"""
+
+
+def shell(inner, nonce, v="dev", extra_head="", script=""):
+    """The progress page: the home's nav and look, one centred card."""
+    return (head(nonce, copy_for(v)["h1"], extra_head) + landing.NAV_MIN
+            + f'<main class="hero"><div class="w prog-w">{inner}</div></main>{script}</body></html>')
 
 
 def page(nonce, v="dev", url_value="", error="", src="", autostart=False, keys=True):
@@ -417,17 +420,7 @@ var b=f.querySelector('button');document.body.classList.add('busy');
 setTimeout(function(){{b.disabled=true;b.textContent='Checking… usually under a minute';}},0);}});}});
 if('serviceWorker' in navigator){{navigator.serviceWorker.register('/sw.js').catch(function(){{}});}}
 {auto}</script>"""
-    h1 = d["h1"]
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(h1)} | Launch Check</title><meta name="description" content="{esc(DESC)}">
-<link rel="canonical" href="{SITE}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#070b14"><link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="preload" href="/inter-var.woff2" as="font" type="font/woff2" crossorigin>
-<meta property="og:title" content="{esc(h1)}"><meta property="og:description" content="{esc(DESC)}">
-<meta property="og:type" content="website"><meta property="og:url" content="{SITE}/">
-<meta property="og:image" content="{SITE}/og.png"><meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json" nonce="{nonce}">{{"@context":"https://schema.org","@type":"WebApplication","name":"Launch Check","url":"{SITE}/","applicationCategory":"DeveloperApplication","offers":{{"@type":"Offer","price":"0"}},"description":"{esc(DESC)}"}}</script>
-<style>{landing.CSS}</style></head><body>{body}{script}</body></html>"""
+    return head(nonce, d["h1"]) + body + script + "</body></html>"
 
 
 def progress_page(job_id, job, nonce):

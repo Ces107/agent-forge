@@ -193,6 +193,15 @@ form.lcf{flex-direction:column;padding:8px}form.lcf button{width:100%}form.lcf i
 .call.c1{top:10%;right:auto;left:0}.call.c2{top:37%;left:auto;right:0}.call.c3{top:82%;right:auto;left:0}.call:after{display:none}
 .bento{grid-template-columns:1fr}section.s{padding-top:72px}.ex{padding:20px}.final{margin-top:80px;padding:56px 0}
 .strip .w{gap:8px 22px}footer .sp{margin-left:0}}
+/* progress page */
+.prog-w{max-width:620px;padding-top:56px;padding-bottom:80px}
+.prog{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line2);border-radius:26px;padding:34px 30px;
+text-align:center;box-shadow:0 30px 80px -30px rgba(34,197,94,.35)}
+.prog b{display:block;font-size:24px;letter-spacing:-.02em;overflow-wrap:anywhere}.prog p{color:var(--mut);margin:14px 0 0}
+.prog .bar{display:block;margin:22px auto 0}.prog .bar i{width:94%;animation:fill 20s cubic-bezier(.2,.6,.4,1)}
+.prog:before{content:"";display:block;width:58px;height:100px;margin:0 auto 22px;border-radius:14px;border:3px solid #334155;
+background:linear-gradient(180deg,transparent 40%,rgba(34,197,94,.35) 50%,transparent 60%) 0 0/100% 200%,#f8fafc;animation:sweep 1.8s linear infinite}
+@keyframes fill{from{width:4%}to{width:94%}}@keyframes sweep{from{background-position:0 100%,0 0}to{background-position:0 -100%,0 0}}
 @media (prefers-reduced-motion:reduce){.phone,.scan,.v-url:after{animation:none}.scan{display:none}html{scroll-behavior:auto}}
 """
 
@@ -204,6 +213,10 @@ ICON_GH = ('<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><pat
            '-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1'
            '.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46'
            '.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>')
+
+
+NAV_MIN = ('<header class="nav"><div class="w"><a class="logo" href="/" aria-label="Launch Check home"><img src="/favicon.svg" '
+           'alt="" width="26" height="26"><span>Launch<i>Check</i></span></a></div></header>')
 
 
 def scan_form(d, v, url_value, src, keys, first):
