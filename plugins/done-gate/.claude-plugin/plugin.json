@@ -1,6 +1,6 @@
 {
   "name": "done-gate",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Free hook: Claude Code can't say \"done\" until the tests really ran green after its last edit. Checks the commands that actually ran, not the agent's words.",
   "author": { "name": "César Pereiro", "url": "https://github.com/Ces107" },
   "homepage": "https://github.com/Ces107/agent-forge/tree/main/skills/done-gate",

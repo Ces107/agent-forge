@@ -16,10 +16,18 @@ change does not weaken tests (see test_integrity.py). Otherwise the Stop hook bl
 reason that tells the agent exactly what is missing. Sessions without code edits are never blocked.
 
 State lives in the system temp directory, one small JSON file per session. Nothing is sent
-anywhere. Optional per-project config: `.proof-of-done.json` in the project root:
+anywhere.
 
-  {"test_commands": ["./scripts/run-tests\\.sh"], "ignore_paths": ["docs/", "*.md"],
-   "max_blocks": 2, "integrity": true, "allow": ["assertion-weakened:tests/test_legacy.py"]}
+Config. A file in the repository can add checks but never waive them, so everything that relaxes the
+gate lives in the user's own file, outside any repository: `~/.claude/proof-of-done.json`
+
+  {"max_blocks": 2, "integrity": true,
+   "projects": {"~/code/shop": {"test_commands": ["./scripts/run-tests\\.sh"], "ignore_paths": ["docs/"],
+                                "allow": ["assertion-weakened:tests/test_legacy.py"]}}}
+
+Top-level keys apply everywhere; keys under "projects" apply in that directory and below. The project's
+`.proof-of-done.json` may only make the gate stricter: a higher `max_blocks` (up to 10) and
+`"integrity": true`. Any other key in it is ignored.
 """
 
 from __future__ import annotations
@@ -48,6 +56,7 @@ TEST_COMMAND = re.compile(
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".txt", ".adoc", ".png", ".jpg", ".jpeg", ".gif", ".svg"}
 DEFAULT_MAX_BLOCKS = 2
+MAX_BLOCKS_CEILING = 10  # the most a project file can raise max_blocks to
 
 FILE_MUTATING_SHELL = re.compile(
     r"\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\bgit\s+apply\b|\bpatch\s+-|"
@@ -93,11 +102,47 @@ def save_state(session_id: str, state: dict) -> None:
     _state_path(session_id).write_text(json.dumps(state), encoding="utf-8")
 
 
-def load_config(cwd: str) -> dict:
+def _read_json(path: Path) -> dict:
     try:
-        return json.loads((Path(cwd) / ".proof-of-done.json").read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _as_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _covers(root: str, here: Path) -> bool:
+    try:
+        base = Path(os.path.expanduser(root)).resolve()
+    except (OSError, ValueError):
+        return False
+    return here == base or base in here.parents
+
+
+def load_config(cwd: str) -> dict:
+    """User config (may relax the gate) merged with the project config (may only tighten it)."""
+    user = _read_json(Path.home() / ".claude" / "proof-of-done.json")
+    config = {key: value for key, value in user.items() if key != "projects"}
+    here = Path(cwd).resolve()
+    projects = user.get("projects")
+    for root, overrides in (projects.items() if isinstance(projects, dict) else []):
+        if isinstance(overrides, dict) and _covers(root, here):
+            config.update(overrides)
+
+    project = _read_json(here / ".proof-of-done.json")
+    config["max_blocks"] = max(
+        _as_int(config.get("max_blocks"), DEFAULT_MAX_BLOCKS),
+        min(_as_int(project.get("max_blocks"), 0), MAX_BLOCKS_CEILING),
+    )
+    if project.get("integrity") is True:
+        config["integrity"] = True
+    return config
 
 
 # ---------------------------------------------------------------------------------------------
@@ -247,7 +292,7 @@ def evaluate_stop(event: dict, state: dict, config: dict) -> str | None:
             return (
                 f"Done Gate: tests pass, but the change weakens the tests: {details}. Restore the "
                 "original tests and fix the code instead. If the user explicitly asked for this, tell them "
-                "and add the rule to `allow` in .proof-of-done.json."
+                "and they can add `rule:path` to `allow` for this project in ~/.claude/proof-of-done.json."
             )
     return None
 
@@ -270,7 +315,7 @@ def main() -> int:
 
     if name == "Stop":
         reason = evaluate_stop(event, state, config)
-        max_blocks = int(config.get("max_blocks", DEFAULT_MAX_BLOCKS))
+        max_blocks = config["max_blocks"]
         if reason and state.get("blocks", 0) < max_blocks:
             state["blocks"] = state.get("blocks", 0) + 1
             save_state(session_id, state)

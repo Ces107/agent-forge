@@ -29,8 +29,9 @@ exactly what to run, runs it, fixes what fails, and only then finishes.
 - It never traps you: after two reminders it lets the turn end with a visible warning, so projects
   without tests keep working. Sessions without code edits are never blocked.
 - Local and private: standard-library Python, a tiny state file per session, no network, no telemetry.
-- Optional `.proof-of-done.json` in the project root: `{"test_commands": ["./run-tests\\.sh"],
-  "ignore_paths": ["docs/"], "max_blocks": 2}`.
+- Config that relaxes the gate (`test_commands`, `ignore_paths`, `allow`, a lower `max_blocks`) lives
+  only in the user's `~/.claude/proof-of-done.json`, globally or under `projects`. A repository's
+  `.proof-of-done.json` can only tighten it: a higher `max_blocks` and `"integrity": true`.
 
 ## When the hook blocks you (agent instructions)
 
