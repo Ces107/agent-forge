@@ -120,7 +120,6 @@ VARIANTS = {
                "sub": "Is your key showing in your site's code? Check in under a minute. Free, no signup.",
                "ex": scanner.GOOGLE_TITLE, "fix": "Fix: " + scanner.GOOGLE_FIX[0].lower() + scanner.GOOGLE_FIX[1:]},
 }
-SUB ="See the result usually in under a minute. Free, no signup, no account."
 
 FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" '
            'fill="#0b1220"/><circle cx="32" cy="32" r="17" fill="none" stroke="#22c55e" stroke-width="7"/>'
@@ -128,59 +127,6 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect wi
            'stroke-linejoin="round"/></svg>')
 
 DESC = ("See your site on a real phone with every problem marked: text too faint to read, buttons too small to tap, overlapping or cut-off text, pages wider than the screen. Exact CSS fix for each, free before/after. For sites built with Lovable, Bolt, v0, Replit or Cursor. Usually under a minute, no signup.")
-
-CSS = """
-:root{--ink:#0b1220;--mut:#5b6678;--line:#e3e8ef;--bg:#f6f8fb;--card:#fff;--acc:#16a34a;--acc2:#22c55e;--red:#dc2626}
-*{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--ink);
-font:16px/1.5 "Inter","Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-.hero{min-height:100svh;padding:44px 16px 56px;
-background:radial-gradient(1200px 600px at 50% -10%,#dcfce7 0,rgba(220,252,231,0) 60%),var(--bg)}
-.in{width:100%;max-width:760px;margin:0 auto}
-.brand{font-weight:800;font-size:17px;letter-spacing:-.01em;margin-bottom:26px;display:flex;align-items:center;gap:8px}
-.brand i{font-style:normal;color:var(--acc)}.brand img{width:26px;height:26px}
-h1{font-size:clamp(34px,7vw,60px);line-height:1.04;letter-spacing:-.033em;margin:0 0 22px;font-weight:850}
-form{display:flex;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:18px;
-padding:10px;box-shadow:0 1px 2px rgba(11,18,32,.05),0 18px 50px rgba(11,18,32,.08)}
-input[type=text]{flex:1 1 260px;min-width:0;border:0;outline:0;font:inherit;font-size:18px;
-padding:14px 12px;background:transparent;color:var(--ink)}
-button{flex:0 0 auto;border:0;border-radius:12px;background:var(--ink);color:#fff;font:inherit;font-weight:750;
-font-size:17px;padding:14px 22px;cursor:pointer}button:hover{background:#1e293b}
-button[disabled]{opacity:.75;cursor:wait}
-.sub{color:#1e293b;margin-top:14px;font-size:16px;font-weight:600}
-.trust{color:#334155;font-size:15px;margin-top:6px}.trust a{color:#334155;font-weight:650}
-.src{color:#475569;font-size:13px;margin-top:8px}
-.biz{color:#475569;font-size:13px;margin-top:4px}
-.ex{margin-top:22px;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--red);
-border-radius:14px;padding:12px 16px}
-.exl{font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
-.exr{display:flex;gap:10px;align-items:flex-start;font-weight:700;font-size:16px}
-.tag{flex:none;font-size:11px;font-weight:800;border-radius:6px;padding:3px 7px;background:#fee2e2;color:#b91c1c;margin-top:2px}
-.ex.amber{border-left-color:#d97706}.ex.amber .tag{background:#fef3c7;color:#b45309}
-.exf{color:#334155;font-size:14px;margin-top:4px;padding-left:52px}
-.exph{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
-.exphr{display:flex;gap:18px;align-items:flex-start}.exphr img{width:190px;height:auto;border:7px solid #0b1220;
-border-radius:24px;display:block;flex:none}
-.exphr ol{list-style:none;margin:6px 0 0;padding:0;font-size:16px;font-weight:650;color:#1e293b}
-.exphr li{margin:0 0 10px}.exphr li b{background:#dc2626;color:#fff;border-radius:5px;padding:1px 6px;font-size:13px;
-margin-right:6px}.also{color:#475569;font-size:13px;margin-top:10px}
-@media (max-width:520px){.exphr img{width:150px}.exphr ol{font-size:14px}}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
-.chip{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:13px;
-font-weight:650;color:#334155;display:flex;align-items:center;gap:7px}
-.chip b{width:9px;height:9px;border-radius:50%;display:inline-block}
-.more{font-size:13px;font-weight:650;color:var(--mut);padding:6px 4px}
-.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:12px 16px;
-margin:0 0 16px;font-weight:600}
-.bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:14px;display:none}
-.bar i{display:block;height:100%;width:0;background:var(--acc2);transition:width 20s cubic-bezier(.2,.6,.4,1)}
-.busy .bar{display:block}.busy .bar i{width:94%}
-.prog{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 22px 18px;
-box-shadow:0 18px 50px rgba(11,18,32,.08)}
-.prog b{font-size:20px}.prog .bar{display:block}.prog .bar i{width:94%;animation:fill 20s cubic-bezier(.2,.6,.4,1)}
-@keyframes fill{from{width:4%}to{width:94%}}.prog p{color:var(--mut);margin:10px 0 0}
-@media (max-width:520px){.hero{padding-top:26px;min-height:auto}button{width:100%}form{padding:8px}
-input[type=text]{font-size:17px}.exf{padding-left:0}}
-"""
 
 FUNNEL_CSS = """
 .lc-top{max-width:1080px;margin:0 auto;padding:16px 28px 0;display:flex;justify-content:flex-end}
